@@ -38,7 +38,7 @@ function buildHtmlBody(bodyText) {
   <strong style="color:#7B1E3C;">${SENDER_PHONE}</strong>
 </span>
 <br>
-<img src="data:image/png;base64,${LOGO_B64}" alt="${SENDER_COMPANY}" style="height:55px;display:block;margin-top:10px;" />`;
+<img src="data:image/png;base64,${LOGO_B64}" alt="${SENDER_COMPANY}" style="max-width:260px;height:auto;display:block;margin-top:10px;" />`;
 
   return `<html><body>${bodyHtml}${sig}</body></html>`;
 }
