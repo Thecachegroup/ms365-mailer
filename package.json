@@ -1,5 +1,6 @@
 {
   "name": "ms365-mailer",
   "version": "1.0.0",
+  "description": "MCP HTTP server — sends email from andrew.hurnard@thecachegroup.com.au via Microsoft Graph",
   "engines": { "node": ">=18" }
 }
