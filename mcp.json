@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+"""
+Microsoft Graph Mailer MCP Server
+Sends emails with file attachments via the Microsoft Graph API.
+
+Required environment variables (set in .mcp.json):
+  GRAPH_TENANT_ID      — Azure AD tenant ID (Directory ID)
+  GRAPH_CLIENT_ID      — Azure app registration client ID
+  GRAPH_CLIENT_SECRET  — Azure app client secret value
+  GRAPH_SEND_AS        — Mailbox to send from (e.g. andrew.hurnard@thecachegroup.com.au)
+
+One-time Azure setup:
+  1. portal.azure.com → Azure Active Directory → App registrations → New registration
+  2. Name: "TCG Cowork Mailer" — single tenant — no redirect URI needed — Register
+  3. API permissions → Add a permission → Microsoft Graph → Application permissions
+     → Search "Mail.Send" → tick it → Add permissions
+  4. Grant admin consent (blue button on the permissions page)
+  5. Certificates & secrets → New client secret → copy the Value (not the ID)
+  6. Overview → copy Application (client) ID and Directory (tenant) ID
+  7. Paste all three into .mcp.json env section below
+"""
+
+import os
+import sys
+import json
+import base64
+import urllib.request
+import urllib.error
+import urllib.parse
+from pathlib import Path
+
+# ── Logo helper ───────────────────────────────────────────────────────────────
+def _load_logo_b64() -> str | None:
+    """Return base64-encoded logo PNG from plugin folder, or None if not found."""
+    # Look for logo.png next to this script
+    candidates = [
+        Path(__file__).parent.parent / "logo.png",
+        Path(__file__).parent / "logo.png",
+    ]
+    for p in candidates:
+        if p.exists():
+            return base64.b64encode(p.read_bytes()).decode()
+    return None
+
+
+def _build_html_signature(sign_off: str, sender_name: str, title: str, company: str, phone: str) -> str:
+    """Return HTML email signature, with logo if logo.png is present."""
+    logo_b64 = _load_logo_b64()
+    if logo_b64:
+        logo_html = (
+            f'<img src="data:image/png;base64,{logo_b64}" '
+            f'alt="{company}" style="height:40px;display:block;margin-bottom:6px;" />'
+        )
+    else:
+        logo_html = ""
+
+    return f"""{sign_off}<br><br>
+{logo_html}
+<span style="font-family:Arial,sans-serif;font-size:12px;color:#333;">
+  <strong>{sender_name}</strong><br>
+  {title}<br>
+  {company}<br>
+  {phone}
+</span>"""
+
+try:
+    from mcp.server.stdio import stdio_server
+    from mcp.server import Server
+    from mcp.types import Tool, TextContent
+    import mcp.types as types
+except ImportError:
+    print(
+        json.dumps({"error": "mcp package not found. Run: pip install mcp --break-system-packages"}),
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+# ── Config ────────────────────────────────────────────────────────────────────
+TENANT_ID     = os.environ.get("GRAPH_TENANT_ID", "")
+CLIENT_ID     = os.environ.get("GRAPH_CLIENT_ID", "")
+CLIENT_SECRET = os.environ.get("GRAPH_CLIENT_SECRET", "")
+SEND_AS       = os.environ.get("GRAPH_SEND_AS", "andrew.hurnard@thecachegroup.com.au")
+SENDER_NAME   = os.environ.get("GRAPH_SENDER_NAME", "Andrew Hurnard")
+SIGN_OFF      = os.environ.get("GRAPH_SIGN_OFF", "Andrew")
+
+GRAPH_BASE   = "https://graph.microsoft.com/v1.0"
+SENDER_TITLE = os.environ.get("GRAPH_SENDER_TITLE", "Director")
+SENDER_COMPANY = os.environ.get("GRAPH_SENDER_COMPANY", "The Cache Group")
+SENDER_PHONE = os.environ.get("GRAPH_SENDER_PHONE", "0417 037 451")
+
+server = Server("ms365-mailer")
+
+# ── Token cache (in-memory) ───────────────────────────────────────────────────
+_token_cache: dict = {}
+
+
+def get_access_token() -> str:
+    """Fetch or reuse a client-credentials access token for Microsoft Graph."""
+    import time
+    now = time.time()
+    if _token_cache.get("expires_at", 0) > now + 60:
+        return _token_cache["access_token"]
+
+    if not all([TENANT_ID, CLIENT_ID, CLIENT_SECRET]):
+        raise ValueError(
+            "Microsoft Graph credentials not configured. "
+            "Set GRAPH_TENANT_ID, GRAPH_CLIENT_ID, and GRAPH_CLIENT_SECRET "
+            "in the plugin .mcp.json env section. See the server file header for setup steps."
+        )
+
+    url = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
+    data = urllib.parse.urlencode({
+        "grant_type":    "client_credentials",
+        "client_id":     CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "scope":         "https://graph.microsoft.com/.default",
+    }).encode()
+
+    req = urllib.request.Request(url, data=data, method="POST",
+                                  headers={"Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")
+        raise RuntimeError(f"Token fetch failed ({e.code}): {body}")
+
+    if "error" in result:
+        raise RuntimeError(f"Token error: {result.get('error_description', result.get('error'))}")
+
+    _token_cache["access_token"] = result["access_token"]
+    _token_cache["expires_at"]   = now + int(result.get("expires_in", 3600))
+    return _token_cache["access_token"]
+
+
+def graph_post(path: str, payload: dict) -> dict:
+    """POST to the Microsoft Graph API and return the response body."""
+    token = get_access_token()
+    url   = f"{GRAPH_BASE}{path}"
+    data  = json.dumps(payload).encode()
+    req   = urllib.request.Request(
+        url, data=data, method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type":  "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = resp.read()
+            return json.loads(body) if body.strip() else {}
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")
+        raise RuntimeError(f"Graph API error ({e.code}): {body}")
+
+
+def build_message(to: str, subject: str, body: str, attachment_paths: list[str]) -> dict:
+    """Build a Graph sendMail payload with HTML signature and optional file attachments."""
+    attachments = []
+    mime_map = {
+        ".pdf":  "application/pdf",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".png":  "image/png",
+        ".jpg":  "image/jpeg",
+        ".jpeg": "image/jpeg",
+    }
+    for path_str in attachment_paths:
+        p = Path(path_str)
+        if not p.exists():
+            raise FileNotFoundError(f"Attachment not found: {path_str}")
+        content_b64  = base64.b64encode(p.read_bytes()).decode()
+        content_type = mime_map.get(p.suffix.lower(), "application/octet-stream")
+        attachments.append({
+            "@odata.type": "#microsoft.graph.fileAttachment",
+            "name":         p.name,
+            "contentType":  content_type,
+            "contentBytes": content_b64,
+        })
+
+    # Build HTML body — convert plain-text body to <p> blocks + HTML signature
+    body_html = "".join(f"<p>{line if line.strip() else '&nbsp;'}</p>" for line in body.split("\n"))
+    sig_html  = _build_html_signature(SIGN_OFF, SENDER_NAME, SENDER_TITLE, SENDER_COMPANY, SENDER_PHONE)
+    full_html = f"<html><body>{body_html}<br>{sig_html}</body></html>"
+
+    message = {
+        "subject": subject,
+        "body": {
+            "contentType": "HTML",
+            "content":     full_html,
+        },
+        "toRecipients": [{"emailAddress": {"address": to}}],
+        "from": {
+            "emailAddress": {
+                "address": SEND_AS,
+                "name":    SENDER_NAME,
+            }
+        },
+    }
+    if attachments:
+        message["attachments"] = attachments
+
+    return {"message": message, "saveToSentItems": True}
+
+
+# ── Tools ─────────────────────────────────────────────────────────────────────
+@server.list_tools()
+async def list_tools() -> list[Tool]:
+    return [
+        Tool(
+            name="send_email_with_attachment",
+            description=(
+                "Send an email with one or more file attachments via Microsoft Graph. "
+                "PREVIEW BY DEFAULT — call without confirm to show exactly what will be sent. "
+                "Call again with confirm: true to actually send. "
+                f"Sends from {SEND_AS} and appends the configured sign-off automatically."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["to", "subject", "body"],
+                "properties": {
+                    "to":               {"type": "string",  "description": "Recipient email address."},
+                    "subject":          {"type": "string",  "description": "Email subject line."},
+                    "body":             {"type": "string",  "description": "Plain-text email body (sign-off appended automatically)."},
+                    "attachment_paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Absolute paths to files to attach (PDF, DOCX, etc.).",
+                        "default": [],
+                    },
+                    "confirm": {"type": "boolean", "default": False,
+                                "description": "Set true to actually send. False (default) shows a preview only."},
+                },
+            },
+        ),
+    ]
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    if name != "send_email_with_attachment":
+        return [TextContent(type="text", text=f"Unknown tool: {name}")]
+
+    to               = arguments["to"]
+    subject          = arguments["subject"]
+    body_raw         = arguments["body"]
+    attachment_paths = arguments.get("attachment_paths", [])
+    confirm          = arguments.get("confirm", False)
+
+    # Append sign-off if not already present
+    body = body_raw.rstrip()
+    if SIGN_OFF and SIGN_OFF.lower() not in body.lower()[-50:]:
+        body = body + f"\n\n{SIGN_OFF}"
+
+    # Build preview
+    attach_lines = ""
+    if attachment_paths:
+        names = [Path(p).name for p in attachment_paths]
+        attach_lines = "\nAttachments:\n" + "\n".join(f"  • {n}" for n in names)
+
+    preview = (
+        f"FROM:    {SEND_AS}\n"
+        f"TO:      {to}\n"
+        f"SUBJECT: {subject}\n"
+        f"{attach_lines}\n"
+        f"\n{body}"
+    )
+
+    if not confirm:
+        return [TextContent(type="text", text=f"PREVIEW (not sent):\n\n{preview}\n\nCall again with confirm: true to send.")]
+
+    # Validate attachments exist before attempting send
+    for p in attachment_paths:
+        if not Path(p).exists():
+            return [TextContent(type="text", text=f"Error: attachment not found: {p}")]
+
+    try:
+        payload = build_message(to, subject, body, attachment_paths)
+        graph_post(f"/users/{SEND_AS}/sendMail", payload)
+        attach_note = f" with {len(attachment_paths)} attachment(s)" if attachment_paths else ""
+        return [TextContent(type="text", text=f"Sent{attach_note} to {to} ✓")]
+    except Exception as e:
+        return [TextContent(type="text", text=f"Send failed: {e}")]
+
+
+import asyncio
+
+async def main():
+    async with stdio_server() as (read_stream, write_stream):
+        await server.run(read_stream, write_stream, server.create_initialization_options())
+
+if __name__ == "__main__":
+    asyncio.run(main())
