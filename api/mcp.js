@@ -22,6 +22,62 @@ const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 
 const LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAATgAAABGCAYAAABYIIhvAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsQAAA7EAZUrDhsAAAAZdEVYdFNvZnR3YXJlAEFkb2JlIEltYWdlUmVhZHlxyWU8AAADImlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgNS4wLWMwNjAgNjEuMTM0Nzc3LCAyMDEwLzAyLzEyLTE3OjMyOjAwICAgICAgICAiPiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPiA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIiB4bWxuczp4bXA9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC8iIHhtbG5zOnhtcE1NPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvbW0vIiB4bWxuczpzdFJlZj0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL3NUeXBlL1Jlc291cmNlUmVmIyIgeG1wOkNyZWF0b3JUb29sPSJBZG9iZSBQaG90b3Nob3AgQ1M1IE1hY2ludG9zaCIgeG1wTU06SW5zdGFuY2VJRD0ieG1wLmlpZDo0MzU3MTc5OEREQkUxMUUzQkY4NkYzREU2RTJFRDcwOCIgeG1wTU06RG9jdW1lbnRJRD0ieG1wLmRpZDo0MzU3MTc5OUREQkUxMUUzQkY4NkYzREU2RTJFRDcwOCI+IDx4bXBNTTpEZXJpdmVkRnJvbSBzdFJlZjppbnN0YW5jZUlEPSJ4bXAuaWlkOjQzNTcxNzk2RERCRTExRTNCRjg2RjNERTZFMkVENzA4IiBzdFJlZjpkb2N1bWVudElEPSJ4bXAuZGlkOjQzNTcxNzk3RERCRTExRTNCRjg2RjNERTZFMkVENzA4Ii8+IDwvcmRmOkRlc2NyaXB0aW9uPiA8L3JkZjpSREY+IDwv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';
 
+// ── Sign-off guard ────────────────────────────────────────────────────────────
+// The signature block below already opens with SIGN_OFF ("Regards") and carries
+// the sender's name. If a body also ends with a sign-off, the recipient sees it
+// twice. Trim a trailing sign-off — and a trailing bare sender name — off the
+// end of the body before anything is built from it. Trailing only: a "Thanks"
+// in the middle of a sentence is left alone.
+
+const SIGN_OFF_LINES = [
+  'regards', 'kind regards', 'warm regards', 'best regards', 'kindest regards',
+  'best', 'best wishes', 'all the best',
+  'thanks', 'thank you', 'thanks again', 'many thanks', 'thanks so much',
+  'cheers', 'sincerely', 'yours sincerely', 'yours faithfully'
+];
+
+function isSignOffLine(line) {
+  const s = line.trim().toLowerCase().replace(/[,.!]+$/, '');
+  return SIGN_OFF_LINES.includes(s);
+}
+
+function isSenderNameLine(line) {
+  const s = line.trim().toLowerCase().replace(/[,.!]+$/, '');
+  if (!s) return false;
+  const full = SENDER_NAME.trim().toLowerCase();
+  const first = full.split(/\s+/)[0];
+  return s === full || s === first;
+}
+
+function stripTrailingSignOff(bodyText) {
+  if (typeof bodyText !== 'string') return bodyText;
+
+  const lines = bodyText.split('\n');
+  let removed = 0;
+
+  // Never chew through more than a sign-off plus a name.
+  while (removed < 2) {
+    let i = lines.length - 1;
+    while (i >= 0 && lines[i].trim() === '') i--;
+    if (i < 0) break;
+
+    if (isSenderNameLine(lines[i]) || isSignOffLine(lines[i])) {
+      lines.length = i;
+      removed++;
+      continue;
+    }
+    break;
+  }
+
+  if (removed === 0) return bodyText;
+
+  while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+
+  const out = lines.join('\n');
+  // A body that was nothing but a sign-off is left as the caller wrote it.
+  return out.trim() === '' ? bodyText : out;
+}
+
 // ── Signature ─────────────────────────────────────────────────────────────────
 
 function buildHtmlBody(bodyText) {
@@ -217,6 +273,9 @@ const TOOLS = [{
 async function callSendEmail(args) {
   const { to, subject, body, cc, confirm, attachments, attach_from_onedrive } = args;
 
+  // Preview and send must both use the same text, so clean it once, here.
+  const cleanBody = stripTrailingSignOff(body);
+
   const drivePaths = Array.isArray(attach_from_onedrive) ? attach_from_onedrive.filter(Boolean) : [];
   const inlineAtts = Array.isArray(attachments) ? attachments : [];
 
@@ -229,7 +288,7 @@ async function callSendEmail(args) {
     + (cc ? `CC:      ${cc}\n` : '')
     + `SUBJECT: ${subject}\n`
     + (attachmentSummary ? `ATTACHED:\n${attachmentSummary}\n` : '')
-    + `\n${body}\n\n[Signature appended]`;
+    + `\n${cleanBody}\n\n[Signature appended]`;
 
   if (!confirm) {
     return { preview: true, text: `PREVIEW (not sent):\n\n${preview}\n\nCall again with confirm: true to send.` };
@@ -244,7 +303,7 @@ async function callSendEmail(args) {
   const toRecipients = to.split(',').map(a => ({ emailAddress: { address: a.trim() } }));
   const message = {
     subject,
-    body: { contentType: 'HTML', content: buildHtmlBody(body) },
+    body: { contentType: 'HTML', content: buildHtmlBody(cleanBody) },
     toRecipients,
     from: { emailAddress: { address: SENDER_EMAIL, name: SENDER_NAME } }
   };
