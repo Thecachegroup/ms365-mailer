@@ -20,6 +20,13 @@ const MCP_SECRET    = process.env.MCP_SHARED_SECRET || '';
 // Graph refuses fileAttachment payloads above ~3 MB on a simple sendMail.
 const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 
+// TCG logo, 312 x 70 px. Sent as an inline cid: attachment, never as a data:
+// URI — Outlook and Gmail both strip data: image sources, which is why the
+// logo silently vanished from every send before v1.2.0.
+const LOGO_CID    = 'tcglogo';
+const LOGO_NAME   = 'tcg-logo.png';
+const LOGO_WIDTH  = 260;   // displayed width
+const LOGO_HEIGHT = 58;    // 312:70 scaled to 260 — both attributes set so Outlook does not stretch it
 const LOGO_B64 = 'iVBORw0KGgoAAAANSUhEUgAAATgAAABGCAYAAABYIIhvAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsQAAA7EAZUrDhsAAAAZdEVYdFNvZnR3YXJlAEFkb2JlIEltYWdlUmVhZHlxyWU8AAADImlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4gPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iQWRvYmUgWE1QIENvcmUgNS4wLWMwNjAgNjEuMTM0Nzc3LCAyMDEwLzAyLzEyLTE3OjMyOjAwICAgICAgICAiPiA8cmRmOlJERiB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiPiA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIiB4bWxuczp4bXA9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC8iIHhtbG5zOnhtcE1NPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvbW0vIiB4bWxuczpzdFJlZj0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL3NUeXBlL1Jlc291cmNlUmVmIyIgeG1wOkNyZWF0b3JUb29sPSJBZG9iZSBQaG90b3Nob3AgQ1M1IE1hY2ludG9zaCIgeG1wTU06SW5zdGFuY2VJRD0ieG1wLmlpZDo0MzU3MTc5OEREQkUxMUUzQkY4NkYzREU2RTJFRDcwOCIgeG1wTU06RG9jdW1lbnRJRD0ieG1wLmRpZDo0MzU3MTc5OUREQkUxMUUzQkY4NkYzREU2RTJFRDcwOCI+IDx4bXBNTTpEZXJpdmVkRnJvbSBzdFJlZjppbnN0YW5jZUlEPSJ4bXAuaWlkOjQzNTcxNzk2RERCRTExRTNCRjg2RjNERTZFMkVENzA4IiBzdFJlZjpkb2N1bWVudElEPSJ4bXAuZGlkOjQzNTcxNzk3RERCRTExRTNCRjg2RjNERTZFMkVENzA4Ii8+IDwvcmRmOkRlc2NyaXB0aW9uPiA8L3JkZjpSREY+IDwv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';
 
 // ── Sign-off guard ────────────────────────────────────────────────────────────
@@ -79,27 +86,53 @@ function stripTrailingSignOff(bodyText) {
 }
 
 // ── Signature ─────────────────────────────────────────────────────────────────
+// Every line carries its own font-family, size and colour on a block-level
+// element. Nothing relies on inheritance from a wrapping <span> or <body>:
+// receiving clients rewrite the outer HTML when they quote a reply, and any
+// styling that lived on a wrapper is lost at that point. That is what made the
+// signature look different in every reply before v1.2.0.
+
+const FONT  = 'font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;';
+const INK   = '#1a1a1a';
+const BRAND = '#932B46';   // TCG brand burgundy, RGB(147,43,70)
 
 function buildHtmlBody(bodyText) {
+  // Blank lines are dropped rather than rendered as empty paragraphs: each
+  // paragraph already carries its own bottom margin, so an extra <p>&nbsp;</p>
+  // just doubles the gap. This is what produced the run of blank lines above
+  // the sign-off in every send before v1.2.0.
   const bodyHtml = bodyText
     .split('\n')
-    .map(l => `<p style="margin:0 0 4px 0;">${l.trim() || '&nbsp;'}</p>`)
+    .map(l => l.trim())
+    .filter(Boolean)
+    .map(l => `<p style="margin:0 0 10px 0;${FONT}color:${INK};">${l}</p>`)
     .join('');
 
-  const sig = `
-<br>
-<p style="margin:0 0 4px 0;font-family:Arial,sans-serif;font-size:13px;">${SIGN_OFF}</p>
-<br>
-<span style="font-family:Arial,sans-serif;font-size:13px;line-height:1.6;">
-  <strong style="color:#1a1a1a;">${SENDER_NAME}</strong><br>
-  <strong style="color:#7B1E3C;">${SENDER_TITLE}</strong><br>
-  <strong style="color:#7B1E3C;">${SENDER_COMPANY}</strong><br>
-  <strong style="color:#7B1E3C;">${SENDER_PHONE}</strong>
-</span>
-<br>
-<img src="data:image/png;base64,${LOGO_B64}" alt="${SENDER_COMPANY}" style="max-width:260px;height:auto;display:block;margin-top:10px;" />`;
+  const sig =
+      `<p style="margin:18px 0 12px 0;${FONT}color:${INK};">${SIGN_OFF}</p>`
+    + `<p style="margin:0;${FONT}color:${INK};"><strong>${SENDER_NAME}</strong></p>`
+    + `<p style="margin:0;${FONT}color:${BRAND};"><strong>${SENDER_TITLE}</strong></p>`
+    + `<p style="margin:0;${FONT}color:${BRAND};"><strong>${SENDER_COMPANY}</strong></p>`
+    + `<p style="margin:0 0 12px 0;${FONT}color:${BRAND};"><strong>${SENDER_PHONE}</strong></p>`
+    + `<p style="margin:0;"><img src="cid:${LOGO_CID}" alt="${SENDER_COMPANY}"`
+    + ` width="${LOGO_WIDTH}" height="${LOGO_HEIGHT}"`
+    + ` style="width:${LOGO_WIDTH}px;height:${LOGO_HEIGHT}px;display:block;border:0;outline:none;text-decoration:none;" /></p>`;
 
-  return `<html><body>${bodyHtml}${sig}</body></html>`;
+  return `<html><body style="margin:0;padding:0;">${bodyHtml}${sig}</body></html>`;
+}
+
+function logoAttachment() {
+  const bytes = Buffer.from(LOGO_B64, 'base64').length;
+  return {
+    '@odata.type': '#microsoft.graph.fileAttachment',
+    name: LOGO_NAME,
+    contentType: 'image/png',
+    contentBytes: LOGO_B64,
+    isInline: true,
+    contentId: LOGO_CID,
+    _bytes: bytes,
+    _inline: true
+  };
 }
 
 // ── Graph helpers ─────────────────────────────────────────────────────────────
@@ -195,8 +228,8 @@ function mimeFor(filename) {
 // "CONTRACTOR AGREEMENTS/Devinia Liddelow/Brief.docx" -> percent-encoded segments
 function encodeDrivePath(p) {
   return String(p)
-    .replace(/\\/g, '/')      // tolerate Windows-style separators
-    .replace(/^\/+/, '')      // drop any leading slash
+    .replace(/\\/g, '/')     // tolerate Windows-style separators
+    .replace(/^\/+/, '')     // drop any leading slash
     .split('/')
     .filter(Boolean)
     .map(encodeURIComponent)
@@ -222,7 +255,7 @@ async function fetchOneDriveAttachment(token, path) {
     name,
     contentType: mimeFor(name),
     contentBytes: buf.toString('base64'),
-    _bytes: buf.length      // stripped before sending; used for the result message
+    _bytes: buf.length        // stripped before sending; used for the result message
   };
 }
 
@@ -239,10 +272,10 @@ const TOOLS = [{
     type: 'object',
     required: ['to', 'subject', 'body'],
     properties: {
-      to:      { type: 'string', description: 'Recipient email. Comma-separate for multiple.' },
+      to: { type: 'string', description: 'Recipient email. Comma-separate for multiple.' },
       subject: { type: 'string', description: 'Subject line' },
-      body:    { type: 'string', description: 'Plain-text body (signature appended automatically)' },
-      cc:      { type: 'string', description: 'CC address (optional)' },
+      body: { type: 'string', description: 'Plain-text body (signature appended automatically)' },
+      cc: { type: 'string', description: 'CC address (optional)' },
       confirm: { type: 'boolean', description: 'false = preview only (default), true = send', default: false },
       attach_from_onedrive: {
         type: 'array',
@@ -260,8 +293,8 @@ const TOOLS = [{
           type: 'object',
           required: ['name', 'contentType', 'contentBytes'],
           properties: {
-            name:         { type: 'string' },
-            contentType:  { type: 'string' },
+            name: { type: 'string' },
+            contentType: { type: 'string' },
             contentBytes: { type: 'string', description: 'Base64-encoded file content' }
           }
         }
@@ -280,12 +313,12 @@ async function callSendEmail(args) {
   const inlineAtts = Array.isArray(attachments) ? attachments : [];
 
   const attachmentSummary = [
-    ...drivePaths.map(p => `  - ${p}  (from OneDrive)`),
-    ...inlineAtts.map(a => `  - ${a.name}  (inline)`)
+    ...drivePaths.map(p => `  - ${p} (from OneDrive)`),
+    ...inlineAtts.map(a => `  - ${a.name} (inline)`)
   ].join('\n');
 
-  const preview = `FROM:    ${SENDER_EMAIL}\nTO:      ${to}\n`
-    + (cc ? `CC:      ${cc}\n` : '')
+  const preview = `FROM: ${SENDER_EMAIL}\nTO: ${to}\n`
+    + (cc ? `CC: ${cc}\n` : '')
     + `SUBJECT: ${subject}\n`
     + (attachmentSummary ? `ATTACHED:\n${attachmentSummary}\n` : '')
     + `\n${cleanBody}\n\n[Signature appended]`;
@@ -309,7 +342,9 @@ async function callSendEmail(args) {
   };
   if (cc) message.ccRecipients = cc.split(',').map(a => ({ emailAddress: { address: a.trim() } }));
 
-  const built = [];
+  // The signature logo always rides along as an inline cid: part. It is hidden
+  // from the attachment list the recipient sees, and from the result message.
+  const built = [logoAttachment()];
 
   // Fetched server-side from OneDrive — the preferred path.
   for (const p of drivePaths) {
@@ -325,15 +360,17 @@ async function callSendEmail(args) {
     });
   }
 
-  let sentNote = '';
-  if (built.length > 0) {
-    const total = built.reduce((n, a) => n + (a._bytes || 0), 0);
-    if (total > MAX_ATTACHMENT_BYTES) {
-      throw new Error(`Attachments total ${(total / 1024 / 1024).toFixed(1)} MB — over Graph's 3 MB limit for a direct send.`);
-    }
-    message.attachments = built.map(({ _bytes, ...rest }) => rest);
-    sentNote = ' with ' + built.map(a => `${a.name} (${a._bytes.toLocaleString()} bytes)`).join(', ');
+  const total = built.reduce((n, a) => n + (a._bytes || 0), 0);
+  if (total > MAX_ATTACHMENT_BYTES) {
+    throw new Error(`Attachments total ${(total / 1024 / 1024).toFixed(1)} MB — over Graph's 3 MB limit for a direct send.`);
   }
+
+  message.attachments = built.map(({ _bytes, _inline, ...rest }) => rest);
+
+  const visible = built.filter(a => !a._inline);
+  const sentNote = visible.length
+    ? ' with ' + visible.map(a => `${a.name} (${a._bytes.toLocaleString()} bytes)`).join(', ')
+    : '';
 
   await graphSendMail(token, message);
   return { preview: false, text: `✓ Email sent to ${to}${sentNote}` };
@@ -343,7 +380,7 @@ async function callSendEmail(args) {
 
 async function handleMcp(rpc) {
   const { method, params, id } = rpc;
-  if (method === 'initialize') return { jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'ms365-mailer', version: '1.1.0' } } };
+  if (method === 'initialize') return { jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'ms365-mailer', version: '1.2.0' } } };
   if (method === 'notifications/initialized') return null;
   if (method === 'ping') return { jsonrpc: '2.0', id, result: {} };
   if (method === 'tools/list') return { jsonrpc: '2.0', id, result: { tools: TOOLS } };
