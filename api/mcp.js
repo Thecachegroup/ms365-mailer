@@ -17,6 +17,81 @@ const SENDER_PHONE  = process.env.SENDER_PHONE  || '0417 037 451';
 const SIGN_OFF      = process.env.SIGN_OFF      || 'Regards';
 const MCP_SECRET    = process.env.MCP_SHARED_SECRET || '';
 
+// ── Sender profiles ─────────────────────────────────────────────────────────
+// Which mailboxes this server may send as, and the signature each one carries.
+//
+// The app registration behind this server holds APPLICATION Mail.Send, which
+// Graph describes in the portal as "send mail as any user". It is not scoped:
+// Graph will send as anyone in the tenant if asked. This allowlist is the only
+// thing standing between a typo and an email that appears to come from someone
+// else. An address that is not a key here is refused before a token is even
+// requested. Adding a key genuinely widens what this server can impersonate —
+// treat it as a security decision, not configuration.
+//
+// `mailbox` is what goes in the Graph URL and must resolve to a real mailbox.
+// `address` is what recipients see in the From line, and must be an address
+// that mailbox actually owns, or Graph rewrites it to the primary and the
+// whole exercise is pointless. For payroll the two differ on purpose: the UPN
+// is still payrollmb@ (changing the primary SMTP does not move a UPN) while
+// the primary — and so the From line — is now payroll@.
+//
+// A profile field left empty is omitted from the signature rather than
+// rendered blank. Payroll carries no personal name, title or mobile.
+
+const SENDERS = {
+  [SENDER_EMAIL.toLowerCase()]: {
+    mailbox: SENDER_EMAIL,
+    address: SENDER_EMAIL,
+    name:    SENDER_NAME,
+    title:   SENDER_TITLE,
+    company: SENDER_COMPANY,
+    phone:   SENDER_PHONE,
+    signOff: SIGN_OFF,
+    drive:   SENDER_EMAIL
+  },
+  'payroll@thecachegroup.com.au': {
+    mailbox: 'payrollmb@thecachegroup.com.au',
+    address: 'payroll@thecachegroup.com.au',
+    name:    'Payroll',
+    title:   '',
+    company: SENDER_COMPANY,
+    phone:   '',
+    signOff: SIGN_OFF,
+    // Attachments still come from Andrew's OneDrive. The payroll mailbox has
+    // no drive of its own, and every path callers pass — AI Working Folder,
+    // CONTRACTOR AGREEMENTS — lives on his. Pointing this at the sender would
+    // break every attachment on a payroll send.
+    drive:   SENDER_EMAIL
+  }
+};
+
+// Same mailbox reachable by its other address, so a caller who says
+// payrollmb@ gets the same profile rather than a refusal.
+SENDERS['payrollmb@thecachegroup.com.au'] = SENDERS['payroll@thecachegroup.com.au'];
+
+function allowedSenders() {
+  const seen = [];
+  for (const p of Object.values(SENDERS)) {
+    if (!seen.includes(p.address)) seen.push(p.address);
+  }
+  return seen;
+}
+
+function resolveSender(from) {
+  if (from === undefined || from === null || String(from).trim() === '') {
+    return SENDERS[SENDER_EMAIL.toLowerCase()];
+  }
+  const key = String(from).trim().toLowerCase();
+  const profile = SENDERS[key];
+  if (!profile) {
+    throw new Error(
+      `Refusing to send as "${from}". This server may only send as: `
+      + allowedSenders().join(', ') + '.'
+    );
+  }
+  return profile;
+}
+
 // Graph refuses fileAttachment payloads above ~3 MB on a simple sendMail.
 const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 
