@@ -52,7 +52,13 @@ const SENDERS = {
   'payroll@thecachegroup.com.au': {
     mailbox: 'payrollmb@thecachegroup.com.au',
     address: 'payroll@thecachegroup.com.au',
-    name:    'Payroll',
+    name:    'The Payroll Team',
+    // Other forms of the same name a body might end with. Used ONLY by the
+    // trailing sign-off stripper, never by the impersonation guard — they
+    // identify THIS sender, so they must never cause a refusal. Without them,
+    // a body ending "Regards / Payroll" (which payroll-copilot may well
+    // compose) survives the stripper and the recipient sees the sign-off twice.
+    altNames: ['Payroll', 'Payroll Team'],
     title:   '',
     company: SENDER_COMPANY,
     phone:   '',
