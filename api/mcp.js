@@ -236,11 +236,28 @@ function buildHtmlBody(bodyText, profile) {
   // paragraph already carries its own bottom margin, so an extra <p>&nbsp;</p>
   // just doubles the gap. This is what produced the run of blank lines above
   // the sign-off in every send before v1.2.0.
+  // Body text is interpolated into HTML, and the schema documents it as PLAIN
+  // text. Without escaping, "<see attached>" silently vanishes in the client
+  // and an anchor tag becomes a live link — inside an email that genuinely
+  // originates from the address contractors are told to trust for payslips
+  // and bank details. That needs no compromise of this server: payroll-copilot
+  // composes bodies from content swept out of the payroll mailbox, which is
+  // contractor-supplied.
+  //
+  // Deliberately only & < > — the three characters that can change structure.
+  // Escaping quotes or anything else would start altering how ordinary text
+  // renders; these three cannot. "Smith & Sons" becomes "Smith &amp; Sons" in
+  // the source and still reads "Smith & Sons" on screen.
+  const esc = s => String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
   const bodyHtml = bodyText
     .split('\n')
     .map(l => l.trim())
     .filter(Boolean)
-    .map(l => `<p style="margin:0 0 10px 0;${FONT}color:${INK};">${l}</p>`)
+    .map(l => `<p style="margin:0 0 10px 0;${FONT}color:${INK};">${esc(l)}</p>`)
     .join('');
 
   // An empty profile field is omitted entirely rather than rendered as an
