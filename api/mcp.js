@@ -572,7 +572,15 @@ async function callSendEmail(args) {
     : '';
 
   await graphSendMail(token, message, profile.mailbox);
-  return { preview: false, text: `✓ Email sent from ${profile.address} to ${to}${sentNote}` };
+  // Graph returns 202 for "accepted", not "delivered as addressed". Exchange
+  // normalises From to the mailbox's primary SMTP, so if payroll@ ever stops
+  // being payrollmb@'s primary, sends keep returning 202 and recipients
+  // quietly see payrollmb@ instead. Report what was actually confirmed rather
+  // than asserting a From line nothing verified.
+  return {
+    preview: false,
+    text: `✓ Accepted by Graph for mailbox ${profile.mailbox}, From set to ${profile.address}, to ${to}${sentNote}`
+  };
 }
 
 // ── MCP router ────────────────────────────────────────────────────────────────
