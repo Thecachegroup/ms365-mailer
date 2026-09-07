@@ -195,6 +195,10 @@ function isSenderNameLine(line, names) {
     const full = String(n || '').trim().toLowerCase();
     if (!full) return false;
     const first = full.split(/\s+/)[0];
+    // An article is not a name. Without this, "The Payroll Team" teaches the
+    // stripper that a trailing line reading "The" is a signature, and it eats
+    // the last line of the body.
+    if (['the', 'a', 'an'].includes(first)) return s === full;
     return s === full || s === first;
   });
 }
