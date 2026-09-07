@@ -82,7 +82,14 @@ function resolveSender(from) {
     return SENDERS[SENDER_EMAIL.toLowerCase()];
   }
   const key = String(from).trim().toLowerCase();
-  const profile = SENDERS[key];
+  // hasOwnProperty, not a bare lookup. SENDERS is a plain object literal, so
+  // it inherits Object.prototype: a bare SENDERS[key] returns a truthy
+  // FUNCTION for "tostring", "constructor", "valueof" and friends, which
+  // would sail through a `if (!profile)` check and then produce a preview
+  // reading "FROM: undefined" instead of a refusal.
+  const profile = Object.prototype.hasOwnProperty.call(SENDERS, key)
+    ? SENDERS[key]
+    : null;
   if (!profile) {
     throw new Error(
       `Refusing to send as "${from}". This server may only send as: `
