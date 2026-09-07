@@ -483,25 +483,53 @@ async function callSendEmail(args) {
   const cleanBody = stripTrailingSignOff(body, knownSenderNames());
 
   // Belt and braces over the stripper. That only trims a sign-off and a name
-  // off the END of a body — a name sitting above a phone number, or anywhere
-  // mid-body, survives it untouched. Anything that identifies a DIFFERENT
-  // sender is refused outright rather than posted to a contractor.
+  // off the END of a body — a name above a phone number, or anywhere mid-body,
+  // survives it untouched. Anything that identifies a DIFFERENT sender is
+  // refused rather than posted to a contractor.
   //
-  // Only genuinely identifying fields are checked: a full name with a space in
-  // it, and a phone number. Single-word names and job titles are ordinary
-  // English — refusing a payroll email for containing "Director", or one of
-  // Andrew's for containing the word "payroll", would be worse than useless.
+  // SCOPE IS THE WHOLE DESIGN HERE. Naming the director in a payroll email is
+  // not impersonation, it is the normal content of payroll email — "approved
+  // by Andrew Hurnard", "any questions, contact Andrew Hurnard". A guard that
+  // refuses those gets switched off within a fortnight and then protects
+  // nothing. So a NAME only counts in signature position: the last few lines,
+  // where a pasted signature block would sit. A PHONE NUMBER or an EMAIL
+  // ADDRESS counts anywhere, because neither belongs mid-sentence in a payroll
+  // notice and both identify a person far more sharply than a name does.
+  //
+  // Job titles and single-word names are never checked: "Director" and
+  // "payroll" are ordinary English.
+  //
+  // Both sides are normalised before comparison. A literal substring match is
+  // defeated by a double space, a non-breaking space pasted out of Outlook, or
+  // any of "0417037451" / "+61 417 037 451" / "0417-037-451" — all of which
+  // are how a phone number actually gets written.
+  const normWs   = s => String(s).toLowerCase().replace(/\s+/g, ' ');
+  const digitsOf = s => String(s).replace(/\D/g, '');
+
+  const bodyNorm   = normWs(cleanBody);
+  const bodyDigits = digitsOf(cleanBody);
+  const tailNorm   = normWs(
+    cleanBody.split('\n').filter(l => l.trim()).slice(-6).join('\n')
+  );
+
+  const refuse = (what) => {
+    throw new Error(
+      `Body contains "${what}", which identifies a different sender than `
+      + `${profile.address}. Refusing to send.`
+    );
+  };
+
   for (const other of new Set(Object.values(SENDERS))) {
     if (other === profile) continue;
-    const identifying = [other.phone];
-    if (other.name && /\s/.test(other.name)) identifying.push(other.name);
-    for (const field of identifying) {
-      if (field && cleanBody.toLowerCase().includes(String(field).toLowerCase())) {
-        throw new Error(
-          `Body contains "${field}", which identifies a different sender than `
-          + `${profile.address}. Refusing to send — remove it, or send as that sender.`
-        );
-      }
+
+    // Last nine digits: survives +61 vs 0, spaces, hyphens and run-together.
+    if (other.phone) {
+      const tail9 = digitsOf(other.phone).slice(-9);
+      if (tail9.length === 9 && bodyDigits.includes(tail9)) refuse(other.phone);
+    }
+    if (other.address && bodyNorm.includes(normWs(other.address))) refuse(other.address);
+    if (other.name && /\s/.test(other.name) && tailNorm.includes(normWs(other.name))) {
+      refuse(other.name);
     }
   }
 
