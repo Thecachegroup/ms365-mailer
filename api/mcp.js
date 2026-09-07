@@ -281,9 +281,10 @@ async function getToken() {
   return parsed.access_token;
 }
 
-async function graphSendMail(token, message) {
+async function graphSendMail(token, message, mailbox) {
+  if (!mailbox) throw new Error('graphSendMail called without a mailbox');
   const res = await httpsPost('graph.microsoft.com',
-    `/v1.0/users/${encodeURIComponent(SENDER_EMAIL)}/sendMail`,
+    `/v1.0/users/${encodeURIComponent(mailbox)}/sendMail`,
     { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
     JSON.stringify({ message, saveToSentItems: true }));
   if (res.status !== 202) throw new Error(`Graph API ${res.status}: ${res.body}`);
