@@ -580,7 +580,7 @@ async function callSendEmail(args) {
 
   const token = await getToken();
 
-  const toRecipients = to.split(',').map(a => ({ emailAddress: { address: a.trim() } }));
+  const toRecipients = toList.map(a => ({ emailAddress: { address: a } }));
   const message = {
     subject,
     body: { contentType: 'HTML', content: buildHtmlBody(cleanBody, profile) },
