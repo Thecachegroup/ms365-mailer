@@ -547,8 +547,26 @@ async function callSendEmail(args) {
   // Lines whose entire content is one identifier, allowing for the decoration
   // a pasted signature carries: "Andrew Hurnard", "-- Andrew Hurnard",
   // "Andrew Hurnard |".
+  //
+  // Only genuine signature delimiters are stripped. RFC 3676 makes "-- " the
+  // delimiter; a single "- " is a BULLET. Stripping both turned a line of a
+  // list of outstanding timesheets — "- Andrew Hurnard" — into a refusal.
+  const stripDecor = l => l
+    .replace(/^(?:--+|[–—*|]+)\s*/, '')
+    .replace(/[,.!|\s]+$/, '');
+
+  // "Andrew Hurnard <andrew.hurnard@thecachegroup.com.au>" is ONE line
+  // carrying TWO identifiers, and on its own matches neither. That is exactly
+  // how Outlook pastes a contact, which makes it the likeliest shape a real
+  // signature arrives in — and it defeated an earlier version of this check
+  // completely. Expand such a line into itself plus both halves.
+  const expandPair = l => {
+    const m = l.match(/^(.*?)\s*<\s*([^<>]+?)\s*>$/);
+    return m ? [l, m[1], m[2]] : [l];
+  };
+
   const standaloneLines = cleanBody.split('\n')
-    .map(l => normWs(l).replace(/^[-–—*|\s]+/, '').replace(/[,.!|\s]+$/, ''))
+    .flatMap(l => expandPair(stripDecor(normWs(l))))
     .filter(Boolean);
 
   for (const other of new Set(Object.values(SENDERS))) {
