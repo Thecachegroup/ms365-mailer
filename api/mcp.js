@@ -180,7 +180,9 @@ function isSignOffLine(line) {
 function knownSenderNames() {
   const names = [SENDER_NAME];
   for (const p of Object.values(SENDERS)) {
-    if (p.name && !names.includes(p.name)) names.push(p.name);
+    for (const n of [p.name, ...(Array.isArray(p.altNames) ? p.altNames : [])]) {
+      if (n && !names.includes(n)) names.push(n);
+    }
   }
   return names.filter(Boolean);
 }
