@@ -325,9 +325,10 @@ function encodeDrivePath(p) {
     .join('/');
 }
 
-async function fetchOneDriveAttachment(token, path) {
+async function fetchOneDriveAttachment(token, path, driveOwner) {
+  if (!driveOwner) throw new Error('fetchOneDriveAttachment called without a drive owner');
   const encoded = encodeDrivePath(path);
-  const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(SENDER_EMAIL)}`
+  const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(driveOwner)}`
             + `/drive/root:/${encoded}:/content`;
   const buf = await httpsGetBuffer(url, { 'Authorization': `Bearer ${token}` });
 
