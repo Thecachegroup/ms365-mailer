@@ -452,7 +452,7 @@ async function callSendEmail(args) {
 
   // Fetched server-side from OneDrive — the preferred path.
   for (const p of drivePaths) {
-    built.push(await fetchOneDriveAttachment(token, p));
+    built.push(await fetchOneDriveAttachment(token, p, profile.drive));
   }
 
   // Legacy inline base64 — kept for files that are not in OneDrive.
