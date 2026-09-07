@@ -403,10 +403,15 @@ const TOOLS = [{
 }];
 
 async function callSendEmail(args) {
-  const { to, subject, body, cc, confirm, attachments, attach_from_onedrive } = args;
+  const { from, to, subject, body, cc, confirm, attachments, attach_from_onedrive } = args;
+
+  // Resolved before anything else, so an address that is not on the allowlist
+  // is refused at the door — in preview as well as on send. A preview that
+  // shows a FROM the server would go on to refuse is worse than no preview.
+  const profile = resolveSender(from);
 
   // Preview and send must both use the same text, so clean it once, here.
-  const cleanBody = stripTrailingSignOff(body);
+  const cleanBody = stripTrailingSignOff(body, profile.name);
 
   const drivePaths = Array.isArray(attach_from_onedrive) ? attach_from_onedrive.filter(Boolean) : [];
   const inlineAtts = Array.isArray(attachments) ? attachments : [];
