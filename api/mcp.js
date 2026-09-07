@@ -614,12 +614,19 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method === 'GET') return res.json({ status: 'ok', server: 'ms365-mailer', sender: SENDER_EMAIL });
-  // Secret check — reject requests not targeting /mcp/{SECRET}
-  if (MCP_SECRET) {
-    const reqPath = (req.url || '').split('?')[0];
-    if (reqPath !== '/mcp/' + MCP_SECRET && reqPath !== '/' + MCP_SECRET) {
-      return res.status(404).json({ error: 'Not found' });
-    }
+  // Fail CLOSED. `if (MCP_SECRET)` meant that an unset environment variable
+  // left this endpoint with no authentication at all, while
+  // Access-Control-Allow-Origin is '*'. That was already wrong. With a second
+  // sender added it becomes a phishing primitive: anyone who found the URL
+  // could send mail appearing to come from the address contractors are told
+  // to trust for payslips and bank details. This is the same fail-open shape
+  // that was fixed in cats-mcp-server on 07/09/2026.
+  if (!MCP_SECRET) {
+    return res.status(500).json({ error: 'Server misconfigured: MCP_SHARED_SECRET is not set' });
+  }
+  const reqPath = (req.url || '').split('?')[0];
+  if (reqPath !== '/mcp/' + MCP_SECRET && reqPath !== '/' + MCP_SECRET) {
+    return res.status(404).json({ error: 'Not found' });
   }
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
