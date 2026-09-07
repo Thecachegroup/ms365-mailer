@@ -65,21 +65,31 @@ const SENDERS = {
   }
 };
 
-// Set SENDER_EMAIL to an address that is also a literal key above and the
-// literal wins silently: Andrew's profile disappears, every default send goes
-// out as Payroll, and `drive` points at a mailbox with no OneDrive so every
-// attachment 404s. All without a word of complaint. Refuse to start instead.
-if (Object.keys(SENDERS).filter(k => k === SENDER_EMAIL.toLowerCase()).length &&
-    SENDERS[SENDER_EMAIL.toLowerCase()].address !== SENDER_EMAIL) {
-  throw new Error(
-    `SENDER_EMAIL "${SENDER_EMAIL}" collides with a built-in sender profile. `
-    + 'Change SENDER_EMAIL or remove the conflicting profile.'
-  );
-}
-
 // Same mailbox reachable by its other address, so a caller who says
 // payrollmb@ gets the same profile rather than a refusal.
 SENDERS['payrollmb@thecachegroup.com.au'] = SENDERS['payroll@thecachegroup.com.au'];
+
+// Set SENDER_EMAIL to an address that is also a built-in key and the built-in
+// wins silently: Andrew's profile disappears, every default send goes out as
+// Payroll, and `drive` points at a mailbox with no OneDrive so every
+// attachment 404s — without a word of complaint. Refuse to start instead.
+//
+// Checked against the literal key list, and AFTER the alias assignment. Both
+// details matter and the first attempt at this guard got both wrong: comparing
+// SENDERS[key].address to SENDER_EMAIL misses an EXACT collision, because the
+// surviving profile's address is the very value that collided; and a guard
+// sitting above the alias line cannot see the payrollmb@ collision at all,
+// because that key does not exist until the line below has run.
+const BUILTIN_SENDER_KEYS = [
+  'payroll@thecachegroup.com.au',
+  'payrollmb@thecachegroup.com.au'
+];
+if (BUILTIN_SENDER_KEYS.includes(SENDER_EMAIL.toLowerCase())) {
+  throw new Error(
+    `SENDER_EMAIL "${SENDER_EMAIL}" collides with a built-in sender profile. `
+    + 'Change SENDER_EMAIL, or remove the conflicting profile from SENDERS.'
+  );
+}
 
 function allowedSenders() {
   const seen = [];
