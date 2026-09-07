@@ -583,10 +583,14 @@ async function callSendEmail(args) {
       }
     }
 
-    for (const field of [other.name, other.address]) {
+    // Indexed, not value-compared. `field === other.name` exempts by VALUE, so
+    // a profile whose address happened to equal its own single-word name would
+    // silently skip the ADDRESS check as well. Position says what was meant.
+    for (const [i, field] of [other.name, other.address].entries()) {
       if (!field) continue;
-      // A single-word name is ordinary English; only a full name counts.
-      if (field === other.name && !/\s/.test(field)) continue;
+      // Index 0 is the name. A single-word name is ordinary English and is
+      // never checked; the address at index 1 is never exempt.
+      if (i === 0 && !/\s/.test(field)) continue;
       if (standaloneLines.includes(normWs(field))) {
         throw new Error(
           `Body contains "${field}" on a line of its own, which reads as a `
