@@ -78,10 +78,20 @@ function allowedSenders() {
 }
 
 function resolveSender(from) {
-  if (from === undefined || from === null || String(from).trim() === '') {
+  if (from === undefined || from === null) {
     return SENDERS[SENDER_EMAIL.toLowerCase()];
   }
-  const key = String(from).trim().toLowerCase();
+  // Strict on type. String([]) is '' and so is String(['']) and String([null]),
+  // so a bare String(from).trim() === '' check quietly resolves an
+  // array-shaped `from` to the DEFAULT sender: a caller that malformed its
+  // from while meaning payroll would send as Andrew — full name, title and
+  // mobile — with no error at all. Refuse the shape rather than guess at the
+  // intent behind it.
+  if (typeof from !== 'string') {
+    throw new Error('`from` must be a string email address.');
+  }
+  const key = from.trim().toLowerCase();
+  if (key === '') return SENDERS[SENDER_EMAIL.toLowerCase()];
   // hasOwnProperty, not a bare lookup. SENDERS is a plain object literal, so
   // it inherits Object.prototype: a bare SENDERS[key] returns a truthy
   // FUNCTION for "tostring", "constructor", "valueof" and friends, which
