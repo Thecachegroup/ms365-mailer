@@ -123,15 +123,16 @@ function isSignOffLine(line) {
   return SIGN_OFF_LINES.includes(s);
 }
 
-function isSenderNameLine(line) {
+function isSenderNameLine(line, senderName) {
   const s = line.trim().toLowerCase().replace(/[,.!]+$/, '');
   if (!s) return false;
-  const full = SENDER_NAME.trim().toLowerCase();
+  const full = String(senderName || '').trim().toLowerCase();
+  if (!full) return false;
   const first = full.split(/\s+/)[0];
   return s === full || s === first;
 }
 
-function stripTrailingSignOff(bodyText) {
+function stripTrailingSignOff(bodyText, senderName) {
   if (typeof bodyText !== 'string') return bodyText;
 
   const lines = bodyText.split('\n');
