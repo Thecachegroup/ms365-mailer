@@ -172,7 +172,7 @@ const FONT  = 'font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height
 const INK   = '#1a1a1a';
 const BRAND = '#932B46';   // TCG brand burgundy, RGB(147,43,70)
 
-function buildHtmlBody(bodyText) {
+function buildHtmlBody(bodyText, profile) {
   // Blank lines are dropped rather than rendered as empty paragraphs: each
   // paragraph already carries its own bottom margin, so an extra <p>&nbsp;</p>
   // just doubles the gap. This is what produced the run of blank lines above
