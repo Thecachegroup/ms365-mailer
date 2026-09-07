@@ -144,7 +144,7 @@ function stripTrailingSignOff(bodyText, senderName) {
     while (i >= 0 && lines[i].trim() === '') i--;
     if (i < 0) break;
 
-    if (isSenderNameLine(lines[i]) || isSignOffLine(lines[i])) {
+    if (isSenderNameLine(lines[i], senderName) || isSignOffLine(lines[i])) {
       lines.length = i;
       removed++;
       continue;
