@@ -267,9 +267,13 @@ function buildHtmlBody(bodyText, profile) {
   // Every detail line carries margin:0 and the spacing before the logo lives
   // on the logo's own paragraph. Putting the gap on the phone line — as this
   // did before — loses it whenever the phone is blank.
+  // Escaped like the body. These fields are constants and env vars today, not
+  // caller-reachable, so this is not closing a hole — it is stopping the two
+  // halves of one function disagreeing about whether interpolated text is
+  // escaped, which is how the next person introduces one.
   const line = (text, colour) =>
     (text && String(text).trim())
-      ? `<p style="margin:0;${FONT}color:${colour};"><strong>${text}</strong></p>`
+      ? `<p style="margin:0;${FONT}color:${colour};"><strong>${esc(text)}</strong></p>`
       : '';
 
   const sig =
