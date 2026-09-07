@@ -484,7 +484,7 @@ async function callSendEmail(args) {
 
 async function handleMcp(rpc) {
   const { method, params, id } = rpc;
-  if (method === 'initialize') return { jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'ms365-mailer', version: '1.2.0' } } };
+  if (method === 'initialize') return { jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'ms365-mailer', version: '1.3.0' } } };
   if (method === 'notifications/initialized') return null;
   if (method === 'ping') return { jsonrpc: '2.0', id, result: {} };
   if (method === 'tools/list') return { jsonrpc: '2.0', id, result: { tools: TOOLS } };
