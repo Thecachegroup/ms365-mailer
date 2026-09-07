@@ -651,7 +651,20 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method === 'GET') return res.json({ status: 'ok', server: 'ms365-mailer', sender: SENDER_EMAIL });
+  // Reports the misconfiguration rather than a cheerful ok. The fail-closed
+  // 500 below sits under this branch, so without this an uptime monitor
+  // pointed at GET would report green on a server where every send 500s.
+  //
+  // The sender address is dropped from the payload: it stopped describing what
+  // this server does the moment there were two senders, and an endpoint
+  // reachable without authentication need not volunteer which identity it is
+  // bound to.
+  if (req.method === 'GET') {
+    return res.status(MCP_SECRET ? 200 : 500).json({
+      status: MCP_SECRET ? 'ok' : 'misconfigured: MCP_SHARED_SECRET is not set',
+      server: 'ms365-mailer'
+    });
+  }
   // Fail CLOSED. `if (MCP_SECRET)` meant that an unset environment variable
   // left this endpoint with no authentication at all, while
   // Access-Control-Allow-Origin is '*'. That was already wrong. With a second
