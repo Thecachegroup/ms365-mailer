@@ -130,16 +130,35 @@ function isSignOffLine(line) {
   return SIGN_OFF_LINES.includes(s);
 }
 
-function isSenderNameLine(line, senderName) {
-  const s = line.trim().toLowerCase().replace(/[,.!]+$/, '');
-  if (!s) return false;
-  const full = String(senderName || '').trim().toLowerCase();
-  if (!full) return false;
-  const first = full.split(/\s+/)[0];
-  return s === full || s === first;
+// EVERY name this server can send under, not just the active one.
+//
+// The stripper has to recognise "Andrew Hurnard" at the foot of a body that is
+// going out as Payroll — that is precisely the case it exists for. Binding it
+// to the active profile's name silently disables it exactly when `from` is
+// set, and because the trim loop breaks on the first line it does not
+// recognise, an unmatched name also shields the "Regards" above it. The result
+// is a payslip from payroll@ signed by Andrew, with a doubled sign-off.
+function knownSenderNames() {
+  const names = [SENDER_NAME];
+  for (const p of Object.values(SENDERS)) {
+    if (p.name && !names.includes(p.name)) names.push(p.name);
+  }
+  return names.filter(Boolean);
 }
 
-function stripTrailingSignOff(bodyText, senderName) {
+function isSenderNameLine(line, names) {
+  const s = line.trim().toLowerCase().replace(/[,.!]+$/, '');
+  if (!s) return false;
+  const list = Array.isArray(names) ? names : [names];
+  return list.some(n => {
+    const full = String(n || '').trim().toLowerCase();
+    if (!full) return false;
+    const first = full.split(/\s+/)[0];
+    return s === full || s === first;
+  });
+}
+
+function stripTrailingSignOff(bodyText, names) {
   if (typeof bodyText !== 'string') return bodyText;
 
   const lines = bodyText.split('\n');
