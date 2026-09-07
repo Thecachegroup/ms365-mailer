@@ -503,11 +503,24 @@ async function callSendEmail(args) {
     ...inlineAtts.map(a => `  - ${a.name} (inline)`)
   ].join('\n');
 
-  const preview = `FROM: ${profile.address}\nTO: ${to}\n`
+  // The preview is the ONLY thing standing between a draft and a live send,
+  // and the question being approved is "does this look like it came from
+  // payroll". Saying "[Signature appended]" hides the one part that answers
+  // it. Show the real block, and disclose the mailbox when it differs from
+  // the From line — payroll@ posts through payrollmb@ and a reader should not
+  // have to know that to understand what they are approving.
+  const sigPreview = [profile.signOff, profile.name, profile.title, profile.company, profile.phone]
+    .filter(v => v && String(v).trim())
+    .join('\n');
+
+  const preview = `FROM: ${profile.address}\n`
+    + (profile.mailbox.toLowerCase() !== profile.address.toLowerCase()
+        ? `VIA MAILBOX: ${profile.mailbox}\n` : '')
+    + `TO: ${to}\n`
     + (cc ? `CC: ${cc}\n` : '')
     + `SUBJECT: ${subject}\n`
     + (attachmentSummary ? `ATTACHED:\n${attachmentSummary}\n` : '')
-    + `\n${cleanBody}\n\n[Signature appended]`;
+    + `\n${cleanBody}\n\n${sigPreview}\n[TCG logo]`;
 
   if (!confirm) {
     return { preview: true, text: `PREVIEW (not sent):\n\n${preview}\n\nCall again with confirm: true to send.` };
