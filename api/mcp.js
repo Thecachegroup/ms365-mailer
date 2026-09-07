@@ -65,6 +65,18 @@ const SENDERS = {
   }
 };
 
+// Set SENDER_EMAIL to an address that is also a literal key above and the
+// literal wins silently: Andrew's profile disappears, every default send goes
+// out as Payroll, and `drive` points at a mailbox with no OneDrive so every
+// attachment 404s. All without a word of complaint. Refuse to start instead.
+if (Object.keys(SENDERS).filter(k => k === SENDER_EMAIL.toLowerCase()).length &&
+    SENDERS[SENDER_EMAIL.toLowerCase()].address !== SENDER_EMAIL) {
+  throw new Error(
+    `SENDER_EMAIL "${SENDER_EMAIL}" collides with a built-in sender profile. `
+    + 'Change SENDER_EMAIL or remove the conflicting profile.'
+  );
+}
+
 // Same mailbox reachable by its other address, so a caller who says
 // payrollmb@ gets the same profile rather than a refusal.
 SENDERS['payrollmb@thecachegroup.com.au'] = SENDERS['payroll@thecachegroup.com.au'];
