@@ -421,7 +421,7 @@ async function callSendEmail(args) {
     ...inlineAtts.map(a => `  - ${a.name} (inline)`)
   ].join('\n');
 
-  const preview = `FROM: ${SENDER_EMAIL}\nTO: ${to}\n`
+  const preview = `FROM: ${profile.address}\nTO: ${to}\n`
     + (cc ? `CC: ${cc}\n` : '')
     + `SUBJECT: ${subject}\n`
     + (attachmentSummary ? `ATTACHED:\n${attachmentSummary}\n` : '')
