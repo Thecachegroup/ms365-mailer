@@ -476,8 +476,8 @@ async function callSendEmail(args) {
     ? ' with ' + visible.map(a => `${a.name} (${a._bytes.toLocaleString()} bytes)`).join(', ')
     : '';
 
-  await graphSendMail(token, message);
-  return { preview: false, text: `✓ Email sent to ${to}${sentNote}` };
+  await graphSendMail(token, message, profile.mailbox);
+  return { preview: false, text: `✓ Email sent from ${profile.address} to ${to}${sentNote}` };
 }
 
 // ── MCP router ────────────────────────────────────────────────────────────────
