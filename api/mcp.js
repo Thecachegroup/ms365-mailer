@@ -514,37 +514,38 @@ async function callSendEmail(args) {
   // survives it untouched. Anything that identifies a DIFFERENT sender is
   // refused rather than posted to a contractor.
   //
-  // SCOPE IS THE WHOLE DESIGN HERE. Naming the director in a payroll email is
-  // not impersonation, it is the normal content of payroll email — "approved
-  // by Andrew Hurnard", "any questions, contact Andrew Hurnard". A guard that
-  // refuses those gets switched off within a fortnight and then protects
-  // nothing. So a NAME only counts in signature position: the last few lines,
-  // where a pasted signature block would sit. A PHONE NUMBER or an EMAIL
-  // ADDRESS counts anywhere, because neither belongs mid-sentence in a payroll
-  // notice and both identify a person far more sharply than a name does.
+  // THE DISCRIMINATOR IS LINE SHAPE, NOT POSITION. A name or an address is
+  // impersonation when it STANDS ALONE on a line — that is a signature. It is
+  // ordinary content when it sits inside a sentence: "approved by Andrew
+  // Hurnard", "send your timesheets to payroll@thecachegroup.com.au". Those
+  // are among the most common sentences this system writes, and a guard that
+  // refuses them gets switched off within a fortnight, after which it protects
+  // nothing at all.
+  //
+  // An earlier attempt scoped by POSITION instead — the last six lines — and
+  // was wrong in both directions. Payroll emails are short, so the window
+  // usually spanned the whole body and scoped nothing; and appending a
+  // six-line disclaimer footer beneath a genuine pasted signature pushed that
+  // signature out of the window, defeating the check entirely.
+  //
+  // A PHONE NUMBER is matched anywhere in the body instead. It never appears
+  // innocently, and since every Australian mobile is 04XX XXX XXX the last
+  // nine digits cannot collide between two different mobiles — the check can
+  // only ever match a genuine appearance of that number.
   //
   // Job titles and single-word names are never checked: "Director" and
   // "payroll" are ordinary English.
-  //
-  // Both sides are normalised before comparison. A literal substring match is
-  // defeated by a double space, a non-breaking space pasted out of Outlook, or
-  // any of "0417037451" / "+61 417 037 451" / "0417-037-451" — all of which
-  // are how a phone number actually gets written.
-  const normWs   = s => String(s).toLowerCase().replace(/\s+/g, ' ');
+  const normWs   = s => String(s).toLowerCase().replace(/\s+/g, ' ').trim();
   const digitsOf = s => String(s).replace(/\D/g, '');
 
-  const bodyNorm   = normWs(cleanBody);
   const bodyDigits = digitsOf(cleanBody);
-  const tailNorm   = normWs(
-    cleanBody.split('\n').filter(l => l.trim()).slice(-6).join('\n')
-  );
 
-  const refuse = (what) => {
-    throw new Error(
-      `Body contains "${what}", which identifies a different sender than `
-      + `${profile.address}. Refusing to send.`
-    );
-  };
+  // Lines whose entire content is one identifier, allowing for the decoration
+  // a pasted signature carries: "Andrew Hurnard", "-- Andrew Hurnard",
+  // "Andrew Hurnard |".
+  const standaloneLines = cleanBody.split('\n')
+    .map(l => normWs(l).replace(/^[-–—*|\s]+/, '').replace(/[,.!|\s]+$/, ''))
+    .filter(Boolean);
 
   for (const other of new Set(Object.values(SENDERS))) {
     if (other === profile) continue;
@@ -552,11 +553,25 @@ async function callSendEmail(args) {
     // Last nine digits: survives +61 vs 0, spaces, hyphens and run-together.
     if (other.phone) {
       const tail9 = digitsOf(other.phone).slice(-9);
-      if (tail9.length === 9 && bodyDigits.includes(tail9)) refuse(other.phone);
+      if (tail9.length === 9 && bodyDigits.includes(tail9)) {
+        throw new Error(
+          `Body contains the phone number "${other.phone}", which belongs to a `
+          + `different sender than ${profile.address}. Refusing to send.`
+        );
+      }
     }
-    if (other.address && bodyNorm.includes(normWs(other.address))) refuse(other.address);
-    if (other.name && /\s/.test(other.name) && tailNorm.includes(normWs(other.name))) {
-      refuse(other.name);
+
+    for (const field of [other.name, other.address]) {
+      if (!field) continue;
+      // A single-word name is ordinary English; only a full name counts.
+      if (field === other.name && !/\s/.test(field)) continue;
+      if (standaloneLines.includes(normWs(field))) {
+        throw new Error(
+          `Body contains "${field}" on a line of its own, which reads as a `
+          + `signature for a different sender than ${profile.address}. `
+          + 'Refusing to send.'
+        );
+      }
     }
   }
 
