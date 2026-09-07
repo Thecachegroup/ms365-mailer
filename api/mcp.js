@@ -440,9 +440,9 @@ async function callSendEmail(args) {
   const toRecipients = to.split(',').map(a => ({ emailAddress: { address: a.trim() } }));
   const message = {
     subject,
-    body: { contentType: 'HTML', content: buildHtmlBody(cleanBody) },
+    body: { contentType: 'HTML', content: buildHtmlBody(cleanBody, profile) },
     toRecipients,
-    from: { emailAddress: { address: SENDER_EMAIL, name: SENDER_NAME } }
+    from: { emailAddress: { address: profile.address, name: profile.name } }
   };
   if (cc) message.ccRecipients = cc.split(',').map(a => ({ emailAddress: { address: a.trim() } }));
 
