@@ -17,6 +17,121 @@ const SENDER_PHONE  = process.env.SENDER_PHONE  || '0417 037 451';
 const SIGN_OFF      = process.env.SIGN_OFF      || 'Regards';
 const MCP_SECRET    = process.env.MCP_SHARED_SECRET || '';
 
+// ── Sender profiles ─────────────────────────────────────────────────────────
+// Which mailboxes this server may send as, and the signature each one carries.
+//
+// The app registration behind this server holds APPLICATION Mail.Send, which
+// Graph describes in the portal as "send mail as any user". It is not scoped:
+// Graph will send as anyone in the tenant if asked. This allowlist is the only
+// thing standing between a typo and an email that appears to come from someone
+// else. An address that is not a key here is refused before a token is even
+// requested. Adding a key genuinely widens what this server can impersonate —
+// treat it as a security decision, not configuration.
+//
+// `mailbox` is what goes in the Graph URL and must resolve to a real mailbox.
+// `address` is what recipients see in the From line, and must be an address
+// that mailbox actually owns, or Graph rewrites it to the primary and the
+// whole exercise is pointless. For payroll the two differ on purpose: the UPN
+// is still payrollmb@ (changing the primary SMTP does not move a UPN) while
+// the primary — and so the From line — is now payroll@.
+//
+// A profile field left empty is omitted from the signature rather than
+// rendered blank. Payroll carries no personal name, title or mobile.
+
+const SENDERS = {
+  [SENDER_EMAIL.toLowerCase()]: {
+    mailbox: SENDER_EMAIL,
+    address: SENDER_EMAIL,
+    name:    SENDER_NAME,
+    title:   SENDER_TITLE,
+    company: SENDER_COMPANY,
+    phone:   SENDER_PHONE,
+    signOff: SIGN_OFF,
+    drive:   SENDER_EMAIL
+  },
+  'payroll@thecachegroup.com.au': {
+    mailbox: 'payrollmb@thecachegroup.com.au',
+    address: 'payroll@thecachegroup.com.au',
+    name:    'Payroll',
+    title:   '',
+    company: SENDER_COMPANY,
+    phone:   '',
+    signOff: SIGN_OFF,
+    // Attachments still come from Andrew's OneDrive. The payroll mailbox has
+    // no drive of its own, and every path callers pass — AI Working Folder,
+    // CONTRACTOR AGREEMENTS — lives on his. Pointing this at the sender would
+    // break every attachment on a payroll send.
+    drive:   SENDER_EMAIL
+  }
+};
+
+// Same mailbox reachable by its other address, so a caller who says
+// payrollmb@ gets the same profile rather than a refusal.
+SENDERS['payrollmb@thecachegroup.com.au'] = SENDERS['payroll@thecachegroup.com.au'];
+
+// Set SENDER_EMAIL to an address that is also a built-in key and the built-in
+// wins silently: Andrew's profile disappears, every default send goes out as
+// Payroll, and `drive` points at a mailbox with no OneDrive so every
+// attachment 404s — without a word of complaint. Refuse to start instead.
+//
+// Checked against the literal key list, and AFTER the alias assignment. Both
+// details matter and the first attempt at this guard got both wrong: comparing
+// SENDERS[key].address to SENDER_EMAIL misses an EXACT collision, because the
+// surviving profile's address is the very value that collided; and a guard
+// sitting above the alias line cannot see the payrollmb@ collision at all,
+// because that key does not exist until the line below has run.
+const BUILTIN_SENDER_KEYS = [
+  'payroll@thecachegroup.com.au',
+  'payrollmb@thecachegroup.com.au'
+];
+if (BUILTIN_SENDER_KEYS.includes(SENDER_EMAIL.toLowerCase())) {
+  throw new Error(
+    `SENDER_EMAIL "${SENDER_EMAIL}" collides with a built-in sender profile. `
+    + 'Change SENDER_EMAIL, or remove the conflicting profile from SENDERS.'
+  );
+}
+
+function allowedSenders() {
+  const seen = [];
+  for (const p of Object.values(SENDERS)) {
+    if (!seen.includes(p.address)) seen.push(p.address);
+  }
+  return seen;
+}
+
+function resolveSender(from) {
+  if (from === undefined || from === null) {
+    return SENDERS[SENDER_EMAIL.toLowerCase()];
+  }
+  // Strict on type. String([]) is '' and so is String(['']) and String([null]),
+  // so a bare String(from).trim() === '' check quietly resolves an
+  // array-shaped `from` to the DEFAULT sender: a caller that malformed its
+  // from while meaning payroll would send as Andrew — full name, title and
+  // mobile — with no error at all. Refuse the shape rather than guess at the
+  // intent behind it.
+  if (typeof from !== 'string') {
+    throw new Error('`from` must be a string email address.');
+  }
+  const key = from.trim().toLowerCase();
+  if (key === '') return SENDERS[SENDER_EMAIL.toLowerCase()];
+  // hasOwnProperty, not a bare lookup. SENDERS is a plain object literal, so
+  // it inherits Object.prototype: a bare SENDERS[key] returns a truthy
+  // FUNCTION for "tostring", "constructor", "valueof" and friends, which
+  // would sail through a `if (!profile)` check and then produce a preview
+  // reading "FROM: undefined" instead of a refusal.
+  const profile = Object.prototype.hasOwnProperty.call(SENDERS, key)
+    ? SENDERS[key]
+    : null;
+  if (!profile) {
+    throw new Error(
+      `Refusing to send as "${from}". Accepted values: `
+      + Object.keys(SENDERS).join(', ')
+      + '. Those resolve to the From lines: ' + allowedSenders().join(', ') + '.'
+    );
+  }
+  return profile;
+}
+
 // Graph refuses fileAttachment payloads above ~3 MB on a simple sendMail.
 const MAX_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 
@@ -48,15 +163,35 @@ function isSignOffLine(line) {
   return SIGN_OFF_LINES.includes(s);
 }
 
-function isSenderNameLine(line) {
-  const s = line.trim().toLowerCase().replace(/[,.!]+$/, '');
-  if (!s) return false;
-  const full = SENDER_NAME.trim().toLowerCase();
-  const first = full.split(/\s+/)[0];
-  return s === full || s === first;
+// EVERY name this server can send under, not just the active one.
+//
+// The stripper has to recognise "Andrew Hurnard" at the foot of a body that is
+// going out as Payroll — that is precisely the case it exists for. Binding it
+// to the active profile's name silently disables it exactly when `from` is
+// set, and because the trim loop breaks on the first line it does not
+// recognise, an unmatched name also shields the "Regards" above it. The result
+// is a payslip from payroll@ signed by Andrew, with a doubled sign-off.
+function knownSenderNames() {
+  const names = [SENDER_NAME];
+  for (const p of Object.values(SENDERS)) {
+    if (p.name && !names.includes(p.name)) names.push(p.name);
+  }
+  return names.filter(Boolean);
 }
 
-function stripTrailingSignOff(bodyText) {
+function isSenderNameLine(line, names) {
+  const s = line.trim().toLowerCase().replace(/[,.!]+$/, '');
+  if (!s) return false;
+  const list = Array.isArray(names) ? names : [names];
+  return list.some(n => {
+    const full = String(n || '').trim().toLowerCase();
+    if (!full) return false;
+    const first = full.split(/\s+/)[0];
+    return s === full || s === first;
+  });
+}
+
+function stripTrailingSignOff(bodyText, names) {
   if (typeof bodyText !== 'string') return bodyText;
 
   const lines = bodyText.split('\n');
@@ -68,7 +203,7 @@ function stripTrailingSignOff(bodyText) {
     while (i >= 0 && lines[i].trim() === '') i--;
     if (i < 0) break;
 
-    if (isSenderNameLine(lines[i]) || isSignOffLine(lines[i])) {
+    if (isSenderNameLine(lines[i], names) || isSignOffLine(lines[i])) {
       lines.length = i;
       removed++;
       continue;
@@ -96,25 +231,58 @@ const FONT  = 'font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height
 const INK   = '#1a1a1a';
 const BRAND = '#932B46';   // TCG brand burgundy, RGB(147,43,70)
 
-function buildHtmlBody(bodyText) {
+function buildHtmlBody(bodyText, profile) {
   // Blank lines are dropped rather than rendered as empty paragraphs: each
   // paragraph already carries its own bottom margin, so an extra <p>&nbsp;</p>
   // just doubles the gap. This is what produced the run of blank lines above
   // the sign-off in every send before v1.2.0.
+  // Body text is interpolated into HTML, and the schema documents it as PLAIN
+  // text. Without escaping, "<see attached>" silently vanishes in the client
+  // and an anchor tag becomes a live link — inside an email that genuinely
+  // originates from the address contractors are told to trust for payslips
+  // and bank details. That needs no compromise of this server: payroll-copilot
+  // composes bodies from content swept out of the payroll mailbox, which is
+  // contractor-supplied.
+  //
+  // Deliberately only & < > — the three characters that can change structure.
+  // Escaping quotes or anything else would start altering how ordinary text
+  // renders; these three cannot. "Smith & Sons" becomes "Smith &amp; Sons" in
+  // the source and still reads "Smith & Sons" on screen.
+  const esc = s => String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
   const bodyHtml = bodyText
     .split('\n')
     .map(l => l.trim())
     .filter(Boolean)
-    .map(l => `<p style="margin:0 0 10px 0;${FONT}color:${INK};">${l}</p>`)
+    .map(l => `<p style="margin:0 0 10px 0;${FONT}color:${INK};">${esc(l)}</p>`)
     .join('');
 
+  // An empty profile field is omitted entirely rather than rendered as an
+  // empty <p>. Payroll has no personal name, title or mobile, and a run of
+  // empty paragraphs shows up as a visible gap above the logo.
+  //
+  // Every detail line carries margin:0 and the spacing before the logo lives
+  // on the logo's own paragraph. Putting the gap on the phone line — as this
+  // did before — loses it whenever the phone is blank.
+  // Escaped like the body. These fields are constants and env vars today, not
+  // caller-reachable, so this is not closing a hole — it is stopping the two
+  // halves of one function disagreeing about whether interpolated text is
+  // escaped, which is how the next person introduces one.
+  const line = (text, colour) =>
+    (text && String(text).trim())
+      ? `<p style="margin:0;${FONT}color:${colour};"><strong>${esc(text)}</strong></p>`
+      : '';
+
   const sig =
-      `<p style="margin:18px 0 12px 0;${FONT}color:${INK};">${SIGN_OFF}</p>`
-    + `<p style="margin:0;${FONT}color:${INK};"><strong>${SENDER_NAME}</strong></p>`
-    + `<p style="margin:0;${FONT}color:${BRAND};"><strong>${SENDER_TITLE}</strong></p>`
-    + `<p style="margin:0;${FONT}color:${BRAND};"><strong>${SENDER_COMPANY}</strong></p>`
-    + `<p style="margin:0 0 12px 0;${FONT}color:${BRAND};"><strong>${SENDER_PHONE}</strong></p>`
-    + `<p style="margin:0;"><img src="cid:${LOGO_CID}" alt="${SENDER_COMPANY}"`
+      `<p style="margin:18px 0 12px 0;${FONT}color:${INK};">${esc(profile.signOff)}</p>`
+    + line(profile.name,    INK)
+    + line(profile.title,   BRAND)
+    + line(profile.company, BRAND)
+    + line(profile.phone,   BRAND)
+    + `<p style="margin:12px 0 0 0;"><img src="cid:${LOGO_CID}" alt="${profile.company}"`
     + ` width="${LOGO_WIDTH}" height="${LOGO_HEIGHT}"`
     + ` style="width:${LOGO_WIDTH}px;height:${LOGO_HEIGHT}px;display:block;border:0;outline:none;text-decoration:none;" /></p>`;
 
@@ -193,9 +361,10 @@ async function getToken() {
   return parsed.access_token;
 }
 
-async function graphSendMail(token, message) {
+async function graphSendMail(token, message, mailbox) {
+  if (!mailbox) throw new Error('graphSendMail called without a mailbox');
   const res = await httpsPost('graph.microsoft.com',
-    `/v1.0/users/${encodeURIComponent(SENDER_EMAIL)}/sendMail`,
+    `/v1.0/users/${encodeURIComponent(mailbox)}/sendMail`,
     { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
     JSON.stringify({ message, saveToSentItems: true }));
   if (res.status !== 202) throw new Error(`Graph API ${res.status}: ${res.body}`);
@@ -236,9 +405,10 @@ function encodeDrivePath(p) {
     .join('/');
 }
 
-async function fetchOneDriveAttachment(token, path) {
+async function fetchOneDriveAttachment(token, path, driveOwner) {
+  if (!driveOwner) throw new Error('fetchOneDriveAttachment called without a drive owner');
   const encoded = encodeDrivePath(path);
-  const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(SENDER_EMAIL)}`
+  const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(driveOwner)}`
             + `/drive/root:/${encoded}:/content`;
   const buf = await httpsGetBuffer(url, { 'Authorization': `Bearer ${token}` });
 
@@ -263,7 +433,11 @@ async function fetchOneDriveAttachment(token, path) {
 
 const TOOLS = [{
   name: 'send_email',
-  description: `Send an email from ${SENDER_EMAIL}. Shows a preview unless confirm is true. Appends TCG signature automatically. `
+  description: `Send an email. Defaults to ${SENDER_EMAIL}; pass from to send as another allowed mailbox `
+    + `(currently ${allowedSenders().join(' or ')}). Anything else is refused. `
+    + `Payroll notices go from payroll@thecachegroup.com.au — contractors know that address. `
+    + `Shows a preview unless confirm is true. Appends the matching TCG signature automatically — `
+    + `the payroll signature carries no personal name, title or mobile. `
     + `To attach a file, prefer attach_from_onedrive — pass the file's path relative to the OneDrive root `
     + `(e.g. "CONTRACTOR AGREEMENTS/Devinia Liddelow/Consultancy Brief Devinia Liddelow 19022027.docx") and the server `
     + `fetches it from OneDrive itself. Use the attachments parameter only for files that do not exist in OneDrive, `
@@ -272,6 +446,11 @@ const TOOLS = [{
     type: 'object',
     required: ['to', 'subject', 'body'],
     properties: {
+      from: {
+        type: 'string',
+        description: 'Mailbox to send as. Omit for ' + SENDER_EMAIL + '. '
+          + 'Allowed: ' + allowedSenders().join(', ') + '. Any other address is refused.'
+      },
       to: { type: 'string', description: 'Recipient email. Comma-separate for multiple.' },
       subject: { type: 'string', description: 'Subject line' },
       body: { type: 'string', description: 'Plain-text body (signature appended automatically)' },
@@ -304,10 +483,123 @@ const TOOLS = [{
 }];
 
 async function callSendEmail(args) {
-  const { to, subject, body, cc, confirm, attachments, attach_from_onedrive } = args;
+  const { from, to, subject, body, cc, confirm, attachments, attach_from_onedrive } = args;
+
+  // Resolved before anything else, so an address that is not on the allowlist
+  // is refused at the door — in preview as well as on send. A preview that
+  // shows a FROM the server would go on to refuse is worse than no preview.
+  const profile = resolveSender(from);
+
+  // Validated before the preview branch. Without this, a missing `to` gives a
+  // clean-looking preview reading "TO: undefined" and then throws deep inside
+  // the send on `to.split`. Pre-existing on main; cheap to close here.
+  if (typeof to !== 'string' || !to.trim()) {
+    throw new Error('`to` is required and must be a non-empty string.');
+  }
+  if (typeof body !== 'string' || !body.trim()) {
+    throw new Error('`body` is required and must be a non-empty string.');
+  }
+  if (typeof subject !== 'string' || !subject.trim()) {
+    throw new Error('`subject` is required and must be a non-empty string.');
+  }
+
+  // Parsed here, not at send time. `to: ","` has a truthy trim, so the check
+  // above passes it and Graph would be handed two empty recipients.
+  const toList = to.split(',').map(a => a.trim()).filter(Boolean);
+  if (!toList.length) {
+    throw new Error('`to` contained no usable addresses.');
+  }
 
   // Preview and send must both use the same text, so clean it once, here.
-  const cleanBody = stripTrailingSignOff(body);
+  const cleanBody = stripTrailingSignOff(body, knownSenderNames());
+
+  // Belt and braces over the stripper. That only trims a sign-off and a name
+  // off the END of a body — a name above a phone number, or anywhere mid-body,
+  // survives it untouched. Anything that identifies a DIFFERENT sender is
+  // refused rather than posted to a contractor.
+  //
+  // THE DISCRIMINATOR IS LINE SHAPE, NOT POSITION. A name or an address is
+  // impersonation when it STANDS ALONE on a line — that is a signature. It is
+  // ordinary content when it sits inside a sentence: "approved by Andrew
+  // Hurnard", "send your timesheets to payroll@thecachegroup.com.au". Those
+  // are among the most common sentences this system writes, and a guard that
+  // refuses them gets switched off within a fortnight, after which it protects
+  // nothing at all.
+  //
+  // An earlier attempt scoped by POSITION instead — the last six lines — and
+  // was wrong in both directions. Payroll emails are short, so the window
+  // usually spanned the whole body and scoped nothing; and appending a
+  // six-line disclaimer footer beneath a genuine pasted signature pushed that
+  // signature out of the window, defeating the check entirely.
+  //
+  // A PHONE NUMBER is matched anywhere in the body instead. It never appears
+  // innocently, and since every Australian mobile is 04XX XXX XXX the last
+  // nine digits cannot collide between two different mobiles — the check can
+  // only ever match a genuine appearance of that number.
+  //
+  // Job titles and single-word names are never checked: "Director" and
+  // "payroll" are ordinary English.
+  const normWs   = s => String(s).toLowerCase().replace(/\s+/g, ' ').trim();
+  const digitsOf = s => String(s).replace(/\D/g, '');
+
+  const bodyDigits = digitsOf(cleanBody);
+
+  // Lines whose entire content is one identifier, allowing for the decoration
+  // a pasted signature carries: "Andrew Hurnard", "-- Andrew Hurnard",
+  // "Andrew Hurnard |".
+  //
+  // Only genuine signature delimiters are stripped. RFC 3676 makes "-- " the
+  // delimiter; a single "- " is a BULLET. Stripping both turned a line of a
+  // list of outstanding timesheets — "- Andrew Hurnard" — into a refusal.
+  const stripDecor = l => l
+    .replace(/^(?:--+|[–—*|]+)\s*/, '')
+    .replace(/[,.!|\s]+$/, '');
+
+  // "Andrew Hurnard <andrew.hurnard@thecachegroup.com.au>" is ONE line
+  // carrying TWO identifiers, and on its own matches neither. That is exactly
+  // how Outlook pastes a contact, which makes it the likeliest shape a real
+  // signature arrives in — and it defeated an earlier version of this check
+  // completely. Expand such a line into itself plus both halves.
+  const expandPair = l => {
+    const m = l.match(/^(.*?)\s*<\s*([^<>]+?)\s*>$/);
+    return m ? [l, m[1], m[2]] : [l];
+  };
+
+  const standaloneLines = cleanBody.split('\n')
+    .flatMap(l => expandPair(stripDecor(normWs(l))))
+    .filter(Boolean);
+
+  for (const other of new Set(Object.values(SENDERS))) {
+    if (other === profile) continue;
+
+    // Last nine digits: survives +61 vs 0, spaces, hyphens and run-together.
+    if (other.phone) {
+      const tail9 = digitsOf(other.phone).slice(-9);
+      if (tail9.length === 9 && bodyDigits.includes(tail9)) {
+        throw new Error(
+          `Body contains the phone number "${other.phone}", which belongs to a `
+          + `different sender than ${profile.address}. Refusing to send.`
+        );
+      }
+    }
+
+    // Indexed, not value-compared. `field === other.name` exempts by VALUE, so
+    // a profile whose address happened to equal its own single-word name would
+    // silently skip the ADDRESS check as well. Position says what was meant.
+    for (const [i, field] of [other.name, other.address].entries()) {
+      if (!field) continue;
+      // Index 0 is the name. A single-word name is ordinary English and is
+      // never checked; the address at index 1 is never exempt.
+      if (i === 0 && !/\s/.test(field)) continue;
+      if (standaloneLines.includes(normWs(field))) {
+        throw new Error(
+          `Body contains "${field}" on a line of its own, which reads as a `
+          + `signature for a different sender than ${profile.address}. `
+          + 'Refusing to send.'
+        );
+      }
+    }
+  }
 
   const drivePaths = Array.isArray(attach_from_onedrive) ? attach_from_onedrive.filter(Boolean) : [];
   const inlineAtts = Array.isArray(attachments) ? attachments : [];
@@ -317,11 +609,24 @@ async function callSendEmail(args) {
     ...inlineAtts.map(a => `  - ${a.name} (inline)`)
   ].join('\n');
 
-  const preview = `FROM: ${SENDER_EMAIL}\nTO: ${to}\n`
+  // The preview is the ONLY thing standing between a draft and a live send,
+  // and the question being approved is "does this look like it came from
+  // payroll". Saying "[Signature appended]" hides the one part that answers
+  // it. Show the real block, and disclose the mailbox when it differs from
+  // the From line — payroll@ posts through payrollmb@ and a reader should not
+  // have to know that to understand what they are approving.
+  const sigPreview = [profile.signOff, profile.name, profile.title, profile.company, profile.phone]
+    .filter(v => v && String(v).trim())
+    .join('\n');
+
+  const preview = `FROM: ${profile.address}\n`
+    + (profile.mailbox.toLowerCase() !== profile.address.toLowerCase()
+        ? `VIA MAILBOX: ${profile.mailbox}\n` : '')
+    + `TO: ${to}\n`
     + (cc ? `CC: ${cc}\n` : '')
     + `SUBJECT: ${subject}\n`
     + (attachmentSummary ? `ATTACHED:\n${attachmentSummary}\n` : '')
-    + `\n${cleanBody}\n\n[Signature appended]`;
+    + `\n${cleanBody}\n\n${sigPreview}\n[TCG logo]`;
 
   if (!confirm) {
     return { preview: true, text: `PREVIEW (not sent):\n\n${preview}\n\nCall again with confirm: true to send.` };
@@ -333,14 +638,21 @@ async function callSendEmail(args) {
 
   const token = await getToken();
 
-  const toRecipients = to.split(',').map(a => ({ emailAddress: { address: a.trim() } }));
+  const toRecipients = toList.map(a => ({ emailAddress: { address: a } }));
   const message = {
     subject,
-    body: { contentType: 'HTML', content: buildHtmlBody(cleanBody) },
+    body: { contentType: 'HTML', content: buildHtmlBody(cleanBody, profile) },
     toRecipients,
-    from: { emailAddress: { address: SENDER_EMAIL, name: SENDER_NAME } }
+    from: { emailAddress: { address: profile.address, name: profile.name } }
   };
-  if (cc) message.ccRecipients = cc.split(',').map(a => ({ emailAddress: { address: a.trim() } }));
+  // Same parse as `to`. Without the filter, a trailing comma hands Graph an
+  // empty recipient — the exact bug just fixed two lines above.
+  if (cc) {
+    const ccList = String(cc).split(',').map(a => a.trim()).filter(Boolean);
+    if (ccList.length) {
+      message.ccRecipients = ccList.map(a => ({ emailAddress: { address: a } }));
+    }
+  }
 
   // The signature logo always rides along as an inline cid: part. It is hidden
   // from the attachment list the recipient sees, and from the result message.
@@ -348,7 +660,7 @@ async function callSendEmail(args) {
 
   // Fetched server-side from OneDrive — the preferred path.
   for (const p of drivePaths) {
-    built.push(await fetchOneDriveAttachment(token, p));
+    built.push(await fetchOneDriveAttachment(token, p, profile.drive));
   }
 
   // Legacy inline base64 — kept for files that are not in OneDrive.
@@ -372,15 +684,23 @@ async function callSendEmail(args) {
     ? ' with ' + visible.map(a => `${a.name} (${a._bytes.toLocaleString()} bytes)`).join(', ')
     : '';
 
-  await graphSendMail(token, message);
-  return { preview: false, text: `✓ Email sent to ${to}${sentNote}` };
+  await graphSendMail(token, message, profile.mailbox);
+  // Graph returns 202 for "accepted", not "delivered as addressed". Exchange
+  // normalises From to the mailbox's primary SMTP, so if payroll@ ever stops
+  // being payrollmb@'s primary, sends keep returning 202 and recipients
+  // quietly see payrollmb@ instead. Report what was actually confirmed rather
+  // than asserting a From line nothing verified.
+  return {
+    preview: false,
+    text: `✓ Accepted by Graph for mailbox ${profile.mailbox}, From set to ${profile.address}, to ${to}${sentNote}`
+  };
 }
 
 // ── MCP router ────────────────────────────────────────────────────────────────
 
 async function handleMcp(rpc) {
   const { method, params, id } = rpc;
-  if (method === 'initialize') return { jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'ms365-mailer', version: '1.2.0' } } };
+  if (method === 'initialize') return { jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'ms365-mailer', version: '1.3.0' } } };
   if (method === 'notifications/initialized') return null;
   if (method === 'ping') return { jsonrpc: '2.0', id, result: {} };
   if (method === 'tools/list') return { jsonrpc: '2.0', id, result: { tools: TOOLS } };
@@ -406,13 +726,33 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method === 'GET') return res.json({ status: 'ok', server: 'ms365-mailer', sender: SENDER_EMAIL });
-  // Secret check — reject requests not targeting /mcp/{SECRET}
-  if (MCP_SECRET) {
-    const reqPath = (req.url || '').split('?')[0];
-    if (reqPath !== '/mcp/' + MCP_SECRET && reqPath !== '/' + MCP_SECRET) {
-      return res.status(404).json({ error: 'Not found' });
-    }
+  // Reports the misconfiguration rather than a cheerful ok. The fail-closed
+  // 500 below sits under this branch, so without this an uptime monitor
+  // pointed at GET would report green on a server where every send 500s.
+  //
+  // The sender address is dropped from the payload: it stopped describing what
+  // this server does the moment there were two senders, and an endpoint
+  // reachable without authentication need not volunteer which identity it is
+  // bound to.
+  if (req.method === 'GET') {
+    return res.status(MCP_SECRET ? 200 : 500).json({
+      status: MCP_SECRET ? 'ok' : 'misconfigured: MCP_SHARED_SECRET is not set',
+      server: 'ms365-mailer'
+    });
+  }
+  // Fail CLOSED. `if (MCP_SECRET)` meant that an unset environment variable
+  // left this endpoint with no authentication at all, while
+  // Access-Control-Allow-Origin is '*'. That was already wrong. With a second
+  // sender added it becomes a phishing primitive: anyone who found the URL
+  // could send mail appearing to come from the address contractors are told
+  // to trust for payslips and bank details. This is the same fail-open shape
+  // that was fixed in cats-mcp-server on 07/09/2026.
+  if (!MCP_SECRET) {
+    return res.status(500).json({ error: 'Server misconfigured: MCP_SHARED_SECRET is not set' });
+  }
+  const reqPath = (req.url || '').split('?')[0];
+  if (reqPath !== '/mcp/' + MCP_SECRET && reqPath !== '/' + MCP_SECRET) {
+    return res.status(404).json({ error: 'Not found' });
   }
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
