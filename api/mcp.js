@@ -184,13 +184,25 @@ function buildHtmlBody(bodyText, profile) {
     .map(l => `<p style="margin:0 0 10px 0;${FONT}color:${INK};">${l}</p>`)
     .join('');
 
+  // An empty profile field is omitted entirely rather than rendered as an
+  // empty <p>. Payroll has no personal name, title or mobile, and a run of
+  // empty paragraphs shows up as a visible gap above the logo.
+  //
+  // Every detail line carries margin:0 and the spacing before the logo lives
+  // on the logo's own paragraph. Putting the gap on the phone line — as this
+  // did before — loses it whenever the phone is blank.
+  const line = (text, colour) =>
+    (text && String(text).trim())
+      ? `<p style="margin:0;${FONT}color:${colour};"><strong>${text}</strong></p>`
+      : '';
+
   const sig =
-      `<p style="margin:18px 0 12px 0;${FONT}color:${INK};">${SIGN_OFF}</p>`
-    + `<p style="margin:0;${FONT}color:${INK};"><strong>${SENDER_NAME}</strong></p>`
-    + `<p style="margin:0;${FONT}color:${BRAND};"><strong>${SENDER_TITLE}</strong></p>`
-    + `<p style="margin:0;${FONT}color:${BRAND};"><strong>${SENDER_COMPANY}</strong></p>`
-    + `<p style="margin:0 0 12px 0;${FONT}color:${BRAND};"><strong>${SENDER_PHONE}</strong></p>`
-    + `<p style="margin:0;"><img src="cid:${LOGO_CID}" alt="${SENDER_COMPANY}"`
+      `<p style="margin:18px 0 12px 0;${FONT}color:${INK};">${profile.signOff}</p>`
+    + line(profile.name,    INK)
+    + line(profile.title,   BRAND)
+    + line(profile.company, BRAND)
+    + line(profile.phone,   BRAND)
+    + `<p style="margin:12px 0 0 0;"><img src="cid:${LOGO_CID}" alt="${profile.company}"`
     + ` width="${LOGO_WIDTH}" height="${LOGO_HEIGHT}"`
     + ` style="width:${LOGO_WIDTH}px;height:${LOGO_HEIGHT}px;display:block;border:0;outline:none;text-decoration:none;" /></p>`;
 
