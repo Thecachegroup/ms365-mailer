@@ -366,6 +366,11 @@ const TOOLS = [{
     type: 'object',
     required: ['to', 'subject', 'body'],
     properties: {
+      from: {
+        type: 'string',
+        description: 'Mailbox to send as. Omit for ' + SENDER_EMAIL + '. '
+          + 'Allowed: ' + allowedSenders().join(', ') + '. Any other address is refused.'
+      },
       to: { type: 'string', description: 'Recipient email. Comma-separate for multiple.' },
       subject: { type: 'string', description: 'Subject line' },
       body: { type: 'string', description: 'Plain-text body (signature appended automatically)' },
