@@ -478,6 +478,16 @@ async function callSendEmail(args) {
   if (typeof body !== 'string' || !body.trim()) {
     throw new Error('`body` is required and must be a non-empty string.');
   }
+  if (typeof subject !== 'string' || !subject.trim()) {
+    throw new Error('`subject` is required and must be a non-empty string.');
+  }
+
+  // Parsed here, not at send time. `to: ","` has a truthy trim, so the check
+  // above passes it and Graph would be handed two empty recipients.
+  const toList = to.split(',').map(a => a.trim()).filter(Boolean);
+  if (!toList.length) {
+    throw new Error('`to` contained no usable addresses.');
+  }
 
   // Preview and send must both use the same text, so clean it once, here.
   const cleanBody = stripTrailingSignOff(body, knownSenderNames());
