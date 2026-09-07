@@ -277,7 +277,7 @@ function buildHtmlBody(bodyText, profile) {
       : '';
 
   const sig =
-      `<p style="margin:18px 0 12px 0;${FONT}color:${INK};">${profile.signOff}</p>`
+      `<p style="margin:18px 0 12px 0;${FONT}color:${INK};">${esc(profile.signOff)}</p>`
     + line(profile.name,    INK)
     + line(profile.title,   BRAND)
     + line(profile.company, BRAND)
