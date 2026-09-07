@@ -459,8 +459,41 @@ async function callSendEmail(args) {
   // shows a FROM the server would go on to refuse is worse than no preview.
   const profile = resolveSender(from);
 
+  // Validated before the preview branch. Without this, a missing `to` gives a
+  // clean-looking preview reading "TO: undefined" and then throws deep inside
+  // the send on `to.split`. Pre-existing on main; cheap to close here.
+  if (typeof to !== 'string' || !to.trim()) {
+    throw new Error('`to` is required and must be a non-empty string.');
+  }
+  if (typeof body !== 'string' || !body.trim()) {
+    throw new Error('`body` is required and must be a non-empty string.');
+  }
+
   // Preview and send must both use the same text, so clean it once, here.
-  const cleanBody = stripTrailingSignOff(body, profile.name);
+  const cleanBody = stripTrailingSignOff(body, knownSenderNames());
+
+  // Belt and braces over the stripper. That only trims a sign-off and a name
+  // off the END of a body — a name sitting above a phone number, or anywhere
+  // mid-body, survives it untouched. Anything that identifies a DIFFERENT
+  // sender is refused outright rather than posted to a contractor.
+  //
+  // Only genuinely identifying fields are checked: a full name with a space in
+  // it, and a phone number. Single-word names and job titles are ordinary
+  // English — refusing a payroll email for containing "Director", or one of
+  // Andrew's for containing the word "payroll", would be worse than useless.
+  for (const other of new Set(Object.values(SENDERS))) {
+    if (other === profile) continue;
+    const identifying = [other.phone];
+    if (other.name && /\s/.test(other.name)) identifying.push(other.name);
+    for (const field of identifying) {
+      if (field && cleanBody.toLowerCase().includes(String(field).toLowerCase())) {
+        throw new Error(
+          `Body contains "${field}", which identifies a different sender than `
+          + `${profile.address}. Refusing to send — remove it, or send as that sender.`
+        );
+      }
+    }
+  }
 
   const drivePaths = Array.isArray(attach_from_onedrive) ? attach_from_onedrive.filter(Boolean) : [];
   const inlineAtts = Array.isArray(attachments) ? attachments : [];
