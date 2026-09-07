@@ -619,7 +619,14 @@ async function callSendEmail(args) {
     toRecipients,
     from: { emailAddress: { address: profile.address, name: profile.name } }
   };
-  if (cc) message.ccRecipients = cc.split(',').map(a => ({ emailAddress: { address: a.trim() } }));
+  // Same parse as `to`. Without the filter, a trailing comma hands Graph an
+  // empty recipient — the exact bug just fixed two lines above.
+  if (cc) {
+    const ccList = String(cc).split(',').map(a => a.trim()).filter(Boolean);
+    if (ccList.length) {
+      message.ccRecipients = ccList.map(a => ({ emailAddress: { address: a } }));
+    }
+  }
 
   // The signature logo always rides along as an inline cid: part. It is hidden
   // from the attachment list the recipient sees, and from the result message.
