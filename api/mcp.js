@@ -102,8 +102,9 @@ function resolveSender(from) {
     : null;
   if (!profile) {
     throw new Error(
-      `Refusing to send as "${from}". This server may only send as: `
-      + allowedSenders().join(', ') + '.'
+      `Refusing to send as "${from}". Accepted values: `
+      + Object.keys(SENDERS).join(', ')
+      + '. Those resolve to the From lines: ' + allowedSenders().join(', ') + '.'
     );
   }
   return profile;
