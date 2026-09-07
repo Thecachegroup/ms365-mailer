@@ -353,7 +353,11 @@ async function fetchOneDriveAttachment(token, path, driveOwner) {
 
 const TOOLS = [{
   name: 'send_email',
-  description: `Send an email from ${SENDER_EMAIL}. Shows a preview unless confirm is true. Appends TCG signature automatically. `
+  description: `Send an email. Defaults to ${SENDER_EMAIL}; pass from to send as another allowed mailbox `
+    + `(currently ${allowedSenders().join(' or ')}). Anything else is refused. `
+    + `Payroll notices go from payroll@thecachegroup.com.au — contractors know that address. `
+    + `Shows a preview unless confirm is true. Appends the matching TCG signature automatically — `
+    + `the payroll signature carries no personal name, title or mobile. `
     + `To attach a file, prefer attach_from_onedrive — pass the file's path relative to the OneDrive root `
     + `(e.g. "CONTRACTOR AGREEMENTS/Devinia Liddelow/Consultancy Brief Devinia Liddelow 19022027.docx") and the server `
     + `fetches it from OneDrive itself. Use the attachments parameter only for files that do not exist in OneDrive, `
