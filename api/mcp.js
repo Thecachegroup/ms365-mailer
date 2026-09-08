@@ -52,7 +52,13 @@ const SENDERS = {
   'payroll@thecachegroup.com.au': {
     mailbox: 'payrollmb@thecachegroup.com.au',
     address: 'payroll@thecachegroup.com.au',
-    name:    'Payroll',
+    name:    'The Payroll Team',
+    // Other forms of the same name a body might end with. Used ONLY by the
+    // trailing sign-off stripper, never by the impersonation guard — they
+    // identify THIS sender, so they must never cause a refusal. Without them,
+    // a body ending "Regards / Payroll" (which payroll-copilot may well
+    // compose) survives the stripper and the recipient sees the sign-off twice.
+    altNames: ['Payroll', 'Payroll Team'],
     title:   '',
     company: SENDER_COMPANY,
     phone:   '',
@@ -174,7 +180,9 @@ function isSignOffLine(line) {
 function knownSenderNames() {
   const names = [SENDER_NAME];
   for (const p of Object.values(SENDERS)) {
-    if (p.name && !names.includes(p.name)) names.push(p.name);
+    for (const n of [p.name, ...(Array.isArray(p.altNames) ? p.altNames : [])]) {
+      if (n && !names.includes(n)) names.push(n);
+    }
   }
   return names.filter(Boolean);
 }
@@ -187,6 +195,10 @@ function isSenderNameLine(line, names) {
     const full = String(n || '').trim().toLowerCase();
     if (!full) return false;
     const first = full.split(/\s+/)[0];
+    // An article is not a name. Without this, "The Payroll Team" teaches the
+    // stripper that a trailing line reading "The" is a signature, and it eats
+    // the last line of the body.
+    if (['the', 'a', 'an'].includes(first)) return s === full;
     return s === full || s === first;
   });
 }
