@@ -17,6 +17,27 @@ const SENDER_PHONE  = process.env.SENDER_PHONE  || '0417 037 451';
 const SIGN_OFF      = process.env.SIGN_OFF      || 'Regards';
 const MCP_SECRET    = process.env.MCP_SHARED_SECRET || '';
 
+// ── Optional extra senders ────────────────────────────────────────────────────
+// Both default OFF. A deployment sends as its own SENDER_EMAIL and nothing else
+// unless explicitly opted in here.
+//
+// Payroll used to be unconditional, so EVERY deployment could ask to send as
+// payroll@ and the only thing refusing it was that mailbox being absent from
+// the app's Exchange access policy. That left a tenant-side policy in charge of
+// a code-side decision: one policy edit, or one new app registration created
+// without one, and a recruiter's connector can send payslips. Fail closed here
+// instead, and let the access policy be the second gate rather than the only
+// one.
+//
+// Defaulting OFF means a deployment that needs payroll must say so. Set
+// ENABLE_PAYROLL_SENDER=true on that project BEFORE deploying this change, or
+// its payroll sends stop working.
+const ENABLE_CAREERS  = String(process.env.ENABLE_CAREERS_SENDER || '').trim().toLowerCase() === 'true';
+const ENABLE_PAYROLL  = String(process.env.ENABLE_PAYROLL_SENDER || '').trim().toLowerCase() === 'true';
+const CAREERS_EMAIL   = 'careers@thecachegroup.com.au';
+const PAYROLL_ADDRESS = 'payroll@thecachegroup.com.au';
+const PAYROLL_MAILBOX = 'payrollmb@thecachegroup.com.au';
+
 // ── Sender profiles ─────────────────────────────────────────────────────────
 // Which mailboxes this server may send as, and the signature each one carries.
 //
