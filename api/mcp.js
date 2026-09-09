@@ -640,7 +640,15 @@ async function callSendEmail(args) {
     .filter(Boolean);
 
   for (const other of new Set(Object.values(SENDERS))) {
-    if (other === profile) continue;
+    // Identity, not object equality. careers@ is a DIFFERENT profile carrying
+    // the SAME person's name and mobile, so `other === profile` treats each as
+    // impersonating the other: Matt sending from matt@ with his own mobile in
+    // the body would be refused for "impersonating" his own careers@ profile.
+    // A profile with no identity falls back to its address so an older or
+    // hand-added profile still gets compared rather than silently skipped.
+    const otherId   = other.identity   || String(other.address || '').toLowerCase();
+    const profileId = profile.identity || String(profile.address || '').toLowerCase();
+    if (otherId === profileId) continue;
 
     // Last nine digits: survives +61 vs 0, spaces, hyphens and run-together.
     if (other.phone) {
