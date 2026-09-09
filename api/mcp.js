@@ -122,13 +122,16 @@ if (ENABLE_PAYROLL) {
     // no drive of its own, and every path callers pass — AI Working Folder,
     // CONTRACTOR AGREEMENTS — lives on his. Pointing this at the sender would
     // break every attachment on a payroll send.
-    drive:   SENDER_EMAIL
-  }
-};
+    drive:   SENDER_EMAIL,
+    // Its own identity: payroll@ carries no personal name or mobile, and a
+    // body signed by a person is genuinely wrong on a payroll send.
+    identity: 'payroll'
+  };
 
-// Same mailbox reachable by its other address, so a caller who says
-// payrollmb@ gets the same profile rather than a refusal.
-SENDERS['payrollmb@thecachegroup.com.au'] = SENDERS['payroll@thecachegroup.com.au'];
+  // Same mailbox reachable by its other address, so a caller who says
+  // payrollmb@ gets the same profile rather than a refusal.
+  SENDERS[PAYROLL_MAILBOX] = SENDERS[PAYROLL_ADDRESS];
+}
 
 // Set SENDER_EMAIL to an address that is also a built-in key and the built-in
 // wins silently: Andrew's profile disappears, every default send goes out as
