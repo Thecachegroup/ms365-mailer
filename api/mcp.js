@@ -17,6 +17,27 @@ const SENDER_PHONE  = process.env.SENDER_PHONE  || '0417 037 451';
 const SIGN_OFF      = process.env.SIGN_OFF      || 'Regards';
 const MCP_SECRET    = process.env.MCP_SHARED_SECRET || '';
 
+// ── Optional extra senders ────────────────────────────────────────────────────
+// Both default OFF. A deployment sends as its own SENDER_EMAIL and nothing else
+// unless explicitly opted in here.
+//
+// Payroll used to be unconditional, so EVERY deployment could ask to send as
+// payroll@ and the only thing refusing it was that mailbox being absent from
+// the app's Exchange access policy. That left a tenant-side policy in charge of
+// a code-side decision: one policy edit, or one new app registration created
+// without one, and a recruiter's connector can send payslips. Fail closed here
+// instead, and let the access policy be the second gate rather than the only
+// one.
+//
+// Defaulting OFF means a deployment that needs payroll must say so. Set
+// ENABLE_PAYROLL_SENDER=true on that project BEFORE deploying this change, or
+// its payroll sends stop working.
+const ENABLE_CAREERS  = String(process.env.ENABLE_CAREERS_SENDER || '').trim().toLowerCase() === 'true';
+const ENABLE_PAYROLL  = String(process.env.ENABLE_PAYROLL_SENDER || '').trim().toLowerCase() === 'true';
+const CAREERS_EMAIL   = 'careers@thecachegroup.com.au';
+const PAYROLL_ADDRESS = 'payroll@thecachegroup.com.au';
+const PAYROLL_MAILBOX = 'payrollmb@thecachegroup.com.au';
+
 // ── Sender profiles ─────────────────────────────────────────────────────────
 // Which mailboxes this server may send as, and the signature each one carries.
 //
@@ -47,11 +68,45 @@ const SENDERS = {
     company: SENDER_COMPANY,
     phone:   SENDER_PHONE,
     signOff: SIGN_OFF,
-    drive:   SENDER_EMAIL
-  },
-  'payroll@thecachegroup.com.au': {
-    mailbox: 'payrollmb@thecachegroup.com.au',
-    address: 'payroll@thecachegroup.com.au',
+    drive:   SENDER_EMAIL,
+    // IDENTITY, not address. The impersonation guard below refuses a body
+    // carrying another sender's name or mobile. careers@ deliberately carries
+    // THIS person's name and mobile, so without a shared identity key each
+    // profile becomes the "other" of the other, and an ordinary email that
+    // mentions the sender's own mobile is refused as impersonation of himself.
+    // Profiles that put the same person in the signature share one identity.
+    identity: SENDER_EMAIL.toLowerCase()
+  }
+};
+
+// ── careers@ ─────────────────────────────────────────────────────────────────
+// The shared candidate inbox. Signed by whoever's deployment this is, so a
+// candidate can see who wrote to them while their reply still lands in the
+// shared inbox rather than one person's. Same identity as the owner above.
+//
+// The guard is not paranoia: a deployment whose SENDER_EMAIL is careers@ would
+// otherwise have its own profile silently overwritten by this one.
+if (ENABLE_CAREERS && SENDER_EMAIL.toLowerCase() !== CAREERS_EMAIL) {
+  SENDERS[CAREERS_EMAIL] = {
+    mailbox: CAREERS_EMAIL,
+    address: CAREERS_EMAIL,
+    name:    SENDER_NAME,
+    title:   SENDER_TITLE,
+    company: SENDER_COMPANY,
+    phone:   SENDER_PHONE,
+    signOff: SIGN_OFF,
+    // Attachments come from the deployment owner's OneDrive, not the shared
+    // mailbox — careers@ has no drive of its own.
+    drive:   SENDER_EMAIL,
+    identity: SENDER_EMAIL.toLowerCase()
+  };
+}
+
+// ── payroll@ ─────────────────────────────────────────────────────────────────
+if (ENABLE_PAYROLL) {
+  SENDERS[PAYROLL_ADDRESS] = {
+    mailbox: PAYROLL_MAILBOX,
+    address: PAYROLL_ADDRESS,
     name:    'The Payroll Team',
     // Other forms of the same name a body might end with. Used ONLY by the
     // trailing sign-off stripper, never by the impersonation guard — they
@@ -67,13 +122,16 @@ const SENDERS = {
     // no drive of its own, and every path callers pass — AI Working Folder,
     // CONTRACTOR AGREEMENTS — lives on his. Pointing this at the sender would
     // break every attachment on a payroll send.
-    drive:   SENDER_EMAIL
-  }
-};
+    drive:   SENDER_EMAIL,
+    // Its own identity: payroll@ carries no personal name or mobile, and a
+    // body signed by a person is genuinely wrong on a payroll send.
+    identity: 'payroll'
+  };
 
-// Same mailbox reachable by its other address, so a caller who says
-// payrollmb@ gets the same profile rather than a refusal.
-SENDERS['payrollmb@thecachegroup.com.au'] = SENDERS['payroll@thecachegroup.com.au'];
+  // Same mailbox reachable by its other address, so a caller who says
+  // payrollmb@ gets the same profile rather than a refusal.
+  SENDERS[PAYROLL_MAILBOX] = SENDERS[PAYROLL_ADDRESS];
+}
 
 // Set SENDER_EMAIL to an address that is also a built-in key and the built-in
 // wins silently: Andrew's profile disappears, every default send goes out as
@@ -582,7 +640,15 @@ async function callSendEmail(args) {
     .filter(Boolean);
 
   for (const other of new Set(Object.values(SENDERS))) {
-    if (other === profile) continue;
+    // Identity, not object equality. careers@ is a DIFFERENT profile carrying
+    // the SAME person's name and mobile, so `other === profile` treats each as
+    // impersonating the other: Matt sending from matt@ with his own mobile in
+    // the body would be refused for "impersonating" his own careers@ profile.
+    // A profile with no identity falls back to its address so an older or
+    // hand-added profile still gets compared rather than silently skipped.
+    const otherId   = other.identity   || String(other.address || '').toLowerCase();
+    const profileId = profile.identity || String(profile.address || '').toLowerCase();
+    if (otherId === profileId) continue;
 
     // Last nine digits: survives +61 vs 0, spaces, hyphens and run-together.
     if (other.phone) {
