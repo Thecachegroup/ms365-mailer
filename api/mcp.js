@@ -68,11 +68,45 @@ const SENDERS = {
     company: SENDER_COMPANY,
     phone:   SENDER_PHONE,
     signOff: SIGN_OFF,
-    drive:   SENDER_EMAIL
-  },
-  'payroll@thecachegroup.com.au': {
-    mailbox: 'payrollmb@thecachegroup.com.au',
-    address: 'payroll@thecachegroup.com.au',
+    drive:   SENDER_EMAIL,
+    // IDENTITY, not address. The impersonation guard below refuses a body
+    // carrying another sender's name or mobile. careers@ deliberately carries
+    // THIS person's name and mobile, so without a shared identity key each
+    // profile becomes the "other" of the other, and an ordinary email that
+    // mentions the sender's own mobile is refused as impersonation of himself.
+    // Profiles that put the same person in the signature share one identity.
+    identity: SENDER_EMAIL.toLowerCase()
+  }
+};
+
+// ── careers@ ─────────────────────────────────────────────────────────────────
+// The shared candidate inbox. Signed by whoever's deployment this is, so a
+// candidate can see who wrote to them while their reply still lands in the
+// shared inbox rather than one person's. Same identity as the owner above.
+//
+// The guard is not paranoia: a deployment whose SENDER_EMAIL is careers@ would
+// otherwise have its own profile silently overwritten by this one.
+if (ENABLE_CAREERS && SENDER_EMAIL.toLowerCase() !== CAREERS_EMAIL) {
+  SENDERS[CAREERS_EMAIL] = {
+    mailbox: CAREERS_EMAIL,
+    address: CAREERS_EMAIL,
+    name:    SENDER_NAME,
+    title:   SENDER_TITLE,
+    company: SENDER_COMPANY,
+    phone:   SENDER_PHONE,
+    signOff: SIGN_OFF,
+    // Attachments come from the deployment owner's OneDrive, not the shared
+    // mailbox — careers@ has no drive of its own.
+    drive:   SENDER_EMAIL,
+    identity: SENDER_EMAIL.toLowerCase()
+  };
+}
+
+// ── payroll@ ─────────────────────────────────────────────────────────────────
+if (ENABLE_PAYROLL) {
+  SENDERS[PAYROLL_ADDRESS] = {
+    mailbox: PAYROLL_MAILBOX,
+    address: PAYROLL_ADDRESS,
     name:    'The Payroll Team',
     // Other forms of the same name a body might end with. Used ONLY by the
     // trailing sign-off stripper, never by the impersonation guard — they
