@@ -17,6 +17,23 @@ const SENDER_PHONE  = process.env.SENDER_PHONE  || '0417 037 451';
 const SIGN_OFF      = process.env.SIGN_OFF      || 'Regards';
 const MCP_SECRET    = process.env.MCP_SHARED_SECRET || '';
 
+// ── Where attachments are read from ──────────────────────────────────────────
+// Attachments used to come from whichever mailbox the deployment sends as:
+// every profile's `drive` resolved to SENDER_EMAIL, so Matt's deployment looked
+// on Matt's OneDrive and Nuria's on Nuria's. The files are on neither. That is
+// why "attach the document" worked for one person and failed for the other two.
+//
+// ATTACH_DRIVE_ID points every deployment at ONE shared library — the TCG
+// SharePoint team site — addressed by driveId, so the sender identity and the
+// file location are finally separate things. Leave it unset and behaviour is
+// exactly as before: each profile reads its own `drive` owner's OneDrive.
+//
+// ATTACH_ROOT is an optional folder inside that library that every relative
+// path is resolved under, so callers keep passing "Consultancy Brief X.docx"
+// rather than a library-specific prefix.
+const ATTACH_DRIVE_ID = process.env.ATTACH_DRIVE_ID || '';
+const ATTACH_ROOT     = process.env.ATTACH_ROOT     || '';
+
 // ── Optional extra senders ────────────────────────────────────────────────────
 // Both default OFF. A deployment sends as its own SENDER_EMAIL and nothing else
 // unless explicitly opted in here.
