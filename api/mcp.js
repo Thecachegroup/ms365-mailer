@@ -871,9 +871,10 @@ async function callSendEmail(args) {
   // from the attachment list the recipient sees, and from the result message.
   const built = [logoAttachment()];
 
-  // Fetched server-side from OneDrive — the preferred path.
-  for (const p of drivePaths) {
-    built.push(await fetchOneDriveAttachment(token, p, profile.drive));
+  // Fetched server-side from OneDrive — the preferred path. Resolution already
+  // happened above, so this only pulls bytes for items proven to exist.
+  for (const r of resolvedItems) {
+    built.push(await fetchOneDriveAttachment(token, r.item));
   }
 
   // Legacy inline base64 — kept for files that are not in OneDrive.
