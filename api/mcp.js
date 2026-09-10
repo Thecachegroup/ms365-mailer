@@ -790,8 +790,35 @@ async function callSendEmail(args) {
   const drivePaths = Array.isArray(attach_from_onedrive) ? attach_from_onedrive.filter(Boolean) : [];
   const inlineAtts = Array.isArray(attachments) ? attachments : [];
 
+  // Resolve every OneDrive attachment NOW, before the preview is returned.
+  // The preview used to be built without touching Graph, so a path that did not
+  // exist was listed as if it did and only the live send failed.
+  let resolvedItems = [];
+  if (drivePaths.length) {
+    if (!TENANT_ID || !CLIENT_ID || !CLIENT_SECRET) {
+      throw new Error('Missing Graph credentials — check Vercel environment variables.');
+    }
+    const lookupToken = await getToken();
+    for (const p of drivePaths) {
+      resolvedItems.push({ asked: p, item: await resolveOneDriveItem(lookupToken, p, profile) });
+    }
+    const driveTotal = resolvedItems.reduce((n, r) => n + (r.item.size || 0), 0);
+    if (driveTotal > MAX_ATTACHMENT_BYTES) {
+      throw new Error(
+        `Attachments total ${(driveTotal / 1024 / 1024).toFixed(1)} MB — over Graph's 3 MB `
+        + `limit for a direct send. Send a share link in the body instead.`
+      );
+    }
+  }
+
   const attachmentSummary = [
-    ...drivePaths.map(p => `  - ${p} (from OneDrive)`),
+    ...resolvedItems.map(r => {
+      const where = r.item.how === 'search'
+        ? ` — found by name${r.item.folder ? ` in ${r.item.folder}` : ''}`
+        : '';
+      const kb = r.item.size ? ` (${Math.max(1, Math.round(r.item.size / 1024))} KB)` : '';
+      return `  - ${r.item.name}${kb}${where}`;
+    }),
     ...inlineAtts.map(a => `  - ${a.name} (inline)`)
   ].join('\n');
 
