@@ -492,25 +492,116 @@ function encodeDrivePath(p) {
     .join('/');
 }
 
-async function fetchOneDriveAttachment(token, path, driveOwner) {
-  if (!driveOwner) throw new Error('fetchOneDriveAttachment called without a drive owner');
-  const encoded = encodeDrivePath(path);
-  const url = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(driveOwner)}`
-            + `/drive/root:/${encoded}:/content`;
+// The drive every attachment is read from. A shared library wins over the
+// sender's own OneDrive whenever ATTACH_DRIVE_ID is set.
+function driveBase(profile) {
+  if (ATTACH_DRIVE_ID) {
+    return `https://graph.microsoft.com/v1.0/drives/${encodeURIComponent(ATTACH_DRIVE_ID)}`;
+  }
+  if (!profile || !profile.drive) {
+    throw new Error('No attachment drive configured — set ATTACH_DRIVE_ID.');
+  }
+  return `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(profile.drive)}/drive`;
+}
+
+function withAttachRoot(p) {
+  const rel = String(p).replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!ATTACH_ROOT) return rel;
+  return `${String(ATTACH_ROOT).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')}/${rel}`;
+}
+
+function isNotFound(err) {
+  return /Graph GET 404/.test(String(err && err.message));
+}
+
+async function graphGetJson(url, token) {
   const buf = await httpsGetBuffer(url, { 'Authorization': `Bearer ${token}` });
+  return JSON.parse(buf.toString('utf8'));
+}
+
+// Resolve one caller-supplied path to a real item BEFORE anything is sent.
+//
+// Two things were wrong before. The caller had to know the exact full path from
+// the drive root, because the path was percent-encoded and handed straight to
+// Graph — a near miss came back as a bare `itemNotFound` that did not even name
+// what it had asked for. And nothing was resolved until the send, so the
+// preview happily listed a file that did not exist and only the real send
+// failed. Both are fixed here: an exact path is tried first, a plain filename
+// falls back to a search of the library, and every caller resolves at preview
+// time.
+async function resolveOneDriveItem(token, rawPath, profile) {
+  const base = driveBase(profile);
+  const rel = encodeDrivePath(withAttachRoot(rawPath));
+  const wanted = String(rawPath).replace(/\\/g, '/').split('/').filter(Boolean).pop() || '';
+
+  if (rel) {
+    try {
+      const meta = await graphGetJson(`${base}/root:/${rel}`, token);
+      if (meta && meta.id && meta.file) {
+        return { base, id: meta.id, name: meta.name, size: meta.size || 0, how: 'path' };
+      }
+      if (meta && meta.id && meta.folder) {
+        throw new Error(`"${rawPath}" is a folder, not a file.`);
+      }
+    } catch (err) {
+      // Only a genuine miss falls through to search. An auth or throttling
+      // failure must surface as itself rather than turning into "not found",
+      // which is how a permissions problem gets diagnosed as a typo.
+      if (!isNotFound(err)) throw err;
+    }
+  }
+
+  if (!wanted) throw new Error('Empty attachment path.');
+
+  const hits = await graphGetJson(
+    `${base}/root/search(q='${encodeURIComponent(wanted.replace(/'/g, "''"))}')`
+    + `?$select=id,name,size,file,parentReference&$top=50`, token);
+
+  const files = (hits && Array.isArray(hits.value) ? hits.value : [])
+    .filter(v => v && v.file && String(v.name).toLowerCase() === wanted.toLowerCase());
+
+  if (files.length === 1) {
+    const f = files[0];
+    const folder = f.parentReference && f.parentReference.path
+      ? String(f.parentReference.path).replace(/^\/drive(s)?\/[^/]+\/root:?/, '').replace(/^\/+/, '')
+      : '';
+    return { base, id: f.id, name: f.name, size: f.size || 0, how: 'search', folder };
+  }
+
+  if (files.length > 1) {
+    const list = files.slice(0, 10).map(f => {
+      const path = f.parentReference && f.parentReference.path ? f.parentReference.path : '';
+      return `  - ${path}/${f.name}`;
+    }).join('\n');
+    throw new Error(
+      `"${wanted}" matches ${files.length} files in the attachment library. `
+      + `Pass the full path instead:\n${list}`
+    );
+  }
+
+  throw new Error(
+    `Attachment not found: "${rawPath}". Looked for the exact path`
+    + (ATTACH_ROOT ? ` under "${ATTACH_ROOT}"` : '')
+    + `, then searched the attachment library for a file named "${wanted}". `
+    + `Check the name, or list the folder first.`
+  );
+}
+
+async function fetchOneDriveAttachment(token, item) {
+  const buf = await httpsGetBuffer(`${item.base}/items/${item.id}/content`,
+                                   { 'Authorization': `Bearer ${token}` });
 
   if (buf.length > MAX_ATTACHMENT_BYTES) {
     throw new Error(
-      `Attachment "${path}" is ${(buf.length / 1024 / 1024).toFixed(1)} MB — `
+      `Attachment "${item.name}" is ${(buf.length / 1024 / 1024).toFixed(1)} MB — `
       + `Graph refuses attachments over 3 MB on a direct send.`
     );
   }
 
-  const name = String(path).replace(/\\/g, '/').split('/').filter(Boolean).pop();
   return {
     '@odata.type': '#microsoft.graph.fileAttachment',
-    name,
-    contentType: mimeFor(name),
+    name: item.name,
+    contentType: mimeFor(item.name),
     contentBytes: buf.toString('base64'),
     _bytes: buf.length        // stripped before sending; used for the result message
   };
