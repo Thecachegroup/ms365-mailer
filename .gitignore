@@ -1,0 +1,7 @@
+node_modules/
+test/.mcp_test_target.js
+.env
+.env.*
+!.env.example
+.vercel/
+.DS_Store
