@@ -483,13 +483,23 @@ function mimeFor(filename) {
 // Encode a OneDrive-relative path for Graph path addressing.
 // "CONTRACTOR AGREEMENTS/Devinia Liddelow/Brief.docx" -> percent-encoded segments
 function encodeDrivePath(p) {
-  return String(p)
+  const segments = String(p)
     .replace(/\\/g, '/')     // tolerate Windows-style separators
     .replace(/^\/+/, '')     // drop any leading slash
     .split('/')
-    .filter(Boolean)
-    .map(encodeURIComponent)
-    .join('/');
+    .filter(Boolean);
+
+  // A '..' segment escapes ATTACH_ROOT. On a deployment whose root is the only
+  // thing keeping it inside one folder of a shared library, that is the
+  // difference between a scoped connector and an unscoped one — so refuse it
+  // here, at the single choke point both the root prefix and the caller's path
+  // pass through. Graph would otherwise resolve it and hand back a file the
+  // deployment was never meant to reach.
+  if (segments.includes('..')) {
+    throw new Error(`Attachment path may not contain '..': ${p}`);
+  }
+
+  return segments.map(encodeURIComponent).join('/');
 }
 
 // The drive every attachment is read from. A shared library wins over the
