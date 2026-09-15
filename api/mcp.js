@@ -325,9 +325,15 @@ function isSenderNameLine(line, names) {
   const s = line.trim().toLowerCase().replace(/[,.!]+$/, '');
   if (!s) return false;
   const list = Array.isArray(names) ? names : [names];
+  // Accepts either the {value, wholeOnly} records knownSenderNames returns or
+  // a bare string, so a caller passing one name still works.
   return list.some(n => {
-    const full = String(n || '').trim().toLowerCase();
+    const rec  = (n && typeof n === 'object') ? n : { value: n, wholeOnly: false };
+    const full = String(rec.value || '').trim().toLowerCase();
     if (!full) return false;
+    // An alt name is a description, not a name — whole match only. See
+    // knownSenderNames for the body line this silently deleted.
+    if (rec.wholeOnly) return s === full;
     const first = full.split(/\s+/)[0];
     // An article is not a name. Without this, "The Payroll Team" teaches the
     // stripper that a trailing line reading "The" is a signature, and it eats
