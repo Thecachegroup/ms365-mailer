@@ -833,6 +833,17 @@ async function callSendEmail(args) {
     const profileId = profile.identity || String(profile.address || '').toLowerCase();
     if (otherId === profileId) continue;
 
+    // The NAME check gets its own identity, falling back to the main one.
+    // careers@ has its own `identity` so nobody's MOBILE rides out on a
+    // candidate email, but shares `nameIdentity` with the deployment owner so
+    // that "Your interviewer will be: / Andrew Hurnard" — an introduction, and
+    // the commonest careers@ email there is — is not refused as impersonation.
+    // A TRAILING name is still removed by the sign-off stripper above, so the
+    // signature case stays covered.
+    const otherNameId   = other.nameIdentity   || otherId;
+    const profileNameId = profile.nameIdentity || profileId;
+    const skipNameCheck = otherNameId === profileNameId;
+
     // Last nine digits: survives +61 vs 0, spaces, hyphens and run-together.
     if (other.phone) {
       const tail9 = digitsOf(other.phone).slice(-9);
