@@ -92,14 +92,42 @@ const SENDERS = {
     // profile becomes the "other" of the other, and an ordinary email that
     // mentions the sender's own mobile is refused as impersonation of himself.
     // Profiles that put the same person in the signature share one identity.
-    identity: SENDER_EMAIL.toLowerCase()
+    // NAMESPACED, and with a DIFFERENT prefix from the shared mailboxes below.
+    // An un-prefixed literal identity ('careers', 'payroll') is collided with
+    // by setting SENDER_EMAIL to that bare word, which silently merges the two
+    // profiles and switches the guard off entirely. One shared prefix does not
+    // fix it — 'sender:careers' collides just as happily. The prefixes must
+    // differ, and a real address can never begin "shared:".
+    identity: 'owner:' + SENDER_EMAIL.toLowerCase()
   }
 };
 
 // ── careers@ ─────────────────────────────────────────────────────────────────
-// The shared candidate inbox. Signed by whoever's deployment this is, so a
-// candidate can see who wrote to them while their reply still lands in the
-// shared inbox rather than one person's. Same identity as the owner above.
+// The shared candidate inbox. Signed as THE RECRUITMENT TEAM — no personal
+// name, no job title, no mobile. Changed 15/09/2026 on Andrew's instruction.
+//
+// It used to be signed with the deployment owner's own name, title and mobile.
+// That is wrong in two directions: it put a director's mobile number on bulk
+// candidate mail, and it made one shared inbox introduce itself as three
+// different people depending which deployment happened to send. careers@ is
+// the company talking, and a reply lands in the shared inbox either way.
+//
+// THREE IDENTITY KEYS, NOT ONE. They are separate because the three checks in
+// the impersonation guard want different answers here, and an earlier draft of
+// this change used one key for all three and broke two ordinary emails:
+//
+//   identity      — the PHONE check. Its own, so nobody's mobile can ride out
+//                   on a careers@ send. That is the point of the change.
+//   nameIdentity  — the NAME check. SHARED with the deployment owner, because
+//                   "Your interviewer will be: / Andrew Hurnard" is the single
+//                   most common shape of a careers@ email and is an
+//                   introduction, not a signature. A TRAILING name is still
+//                   removed by the sign-off stripper, so the signature case is
+//                   covered without refusing the introduction case.
+//   sharedInbox   — skips the ADDRESS check. "Send your CV to: / careers@…" on
+//                   a line of its own is an instruction, not a pasted
+//                   signature, and the guard's own note already calls that
+//                   ordinary content.
 //
 // The guard is not paranoia: a deployment whose SENDER_EMAIL is careers@ would
 // otherwise have its own profile silently overwritten by this one.
@@ -107,15 +135,20 @@ if (ENABLE_CAREERS && SENDER_EMAIL.toLowerCase() !== CAREERS_EMAIL) {
   SENDERS[CAREERS_EMAIL] = {
     mailbox: CAREERS_EMAIL,
     address: CAREERS_EMAIL,
-    name:    SENDER_NAME,
-    title:   SENDER_TITLE,
+    name:    'The Recruitment Team',
+    // Other forms of the same name a body might end with. Sign-off stripper
+    // only, and matched WHOLE — see knownSenderNames below for why.
+    altNames: ['Recruitment Team'],
+    title:   '',
     company: SENDER_COMPANY,
-    phone:   SENDER_PHONE,
+    phone:   '',
     signOff: SIGN_OFF,
     // Attachments come from the deployment owner's OneDrive, not the shared
     // mailbox — careers@ has no drive of its own.
     drive:   SENDER_EMAIL,
-    identity: SENDER_EMAIL.toLowerCase()
+    identity:     'shared:careers',
+    nameIdentity: 'owner:' + SENDER_EMAIL.toLowerCase(),
+    sharedInbox:  true
   };
 }
 
@@ -142,7 +175,10 @@ if (ENABLE_PAYROLL) {
     drive:   SENDER_EMAIL,
     // Its own identity: payroll@ carries no personal name or mobile, and a
     // body signed by a person is genuinely wrong on a payroll send.
-    identity: 'payroll'
+    identity: 'shared:payroll',
+    // payroll@ on its own line is "send your timesheets here", not a pasted
+    // signature. Same reasoning as careers@ above.
+    sharedInbox: true
   };
 
   // Same mailbox reachable by its other address, so a caller who says
@@ -163,7 +199,12 @@ if (ENABLE_PAYROLL) {
 // because that key does not exist until the line below has run.
 const BUILTIN_SENDER_KEYS = [
   'payroll@thecachegroup.com.au',
-  'payrollmb@thecachegroup.com.au'
+  'payrollmb@thecachegroup.com.au',
+  // careers@ too. Without it, SENDER_EMAIL=careers@ starts the server with the
+  // careers block skipped, so careers@ is the only allowed sender AND it signs
+  // with the owner's name, title and mobile — the exact thing the careers
+  // change exists to prevent — while tools/list asserts the opposite.
+  'careers@thecachegroup.com.au'
 ];
 if (BUILTIN_SENDER_KEYS.includes(SENDER_EMAIL.toLowerCase())) {
   throw new Error(
@@ -252,23 +293,47 @@ function isSignOffLine(line) {
 // set, and because the trim loop breaks on the first line it does not
 // recognise, an unmatched name also shields the "Regards" above it. The result
 // is a payslip from payroll@ signed by Andrew, with a doubled sign-off.
+// Returns {value, wholeOnly}. A real NAME may be matched on its first word —
+// "Andrew" alone at the foot of a body is a signature. An ALT NAME may not.
+//
+// altNames are descriptive words, not names: 'Recruitment Team' first-worded
+// to 'recruitment', which taught the stripper that a trailing line reading
+// "Recruitment" is a signature. A body ending "...functions: / Finance /
+// Operations / Recruitment" then lost its last line, SILENTLY, on EVERY sender
+// and EVERY deployment — the stripper is global, not per-profile. Worse, the
+// loop removes up to two lines, so a newly-recognised word unlocks whatever
+// sits beneath it: "WHS / Payroll / Recruitment" lost two.
+//
+// Whole-match only for altNames. 'Payroll' carried the same latent bug and is
+// fixed by the same change.
 function knownSenderNames() {
-  const names = [SENDER_NAME];
+  const out = [];
+  const seen = new Set();
+  const add = (value, wholeOnly) => {
+    if (!value || seen.has(value)) return;
+    seen.add(value); out.push({ value, wholeOnly });
+  };
+  add(SENDER_NAME, false);
   for (const p of Object.values(SENDERS)) {
-    for (const n of [p.name, ...(Array.isArray(p.altNames) ? p.altNames : [])]) {
-      if (n && !names.includes(n)) names.push(n);
-    }
+    add(p.name, false);
+    for (const n of (Array.isArray(p.altNames) ? p.altNames : [])) add(n, true);
   }
-  return names.filter(Boolean);
+  return out;
 }
 
 function isSenderNameLine(line, names) {
   const s = line.trim().toLowerCase().replace(/[,.!]+$/, '');
   if (!s) return false;
   const list = Array.isArray(names) ? names : [names];
+  // Accepts either the {value, wholeOnly} records knownSenderNames returns or
+  // a bare string, so a caller passing one name still works.
   return list.some(n => {
-    const full = String(n || '').trim().toLowerCase();
+    const rec  = (n && typeof n === 'object') ? n : { value: n, wholeOnly: false };
+    const full = String(rec.value || '').trim().toLowerCase();
     if (!full) return false;
+    // An alt name is a description, not a name — whole match only. See
+    // knownSenderNames for the body line this silently deleted.
+    if (rec.wholeOnly) return s === full;
     const first = full.split(/\s+/)[0];
     // An article is not a name. Without this, "The Payroll Team" teaches the
     // stripper that a trailing line reading "The" is a signature, and it eats
@@ -619,13 +684,27 @@ async function fetchOneDriveAttachment(token, item) {
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
 
+// One sentence naming only the shared-address signatures THIS deployment can
+// actually send under. Empty when it has neither. A static sentence advertised
+// a careers@ signature on a deployment with careers off and a payroll@ one on
+// Matt's, so the model read the description, tried it, and got a refusal.
+const SHARED_SIG_NOTE = (() => {
+  const parts = [];
+  if (SENDERS[CAREERS_EMAIL])   parts.push('careers@ signs as The Recruitment Team');
+  if (SENDERS[PAYROLL_ADDRESS]) parts.push('payroll@ signs as The Payroll Team');
+  if (!parts.length) return '';
+  return `Shared-address sends carry no personal name, title or mobile: ${parts.join(', ')}.`;
+})();
+
 const TOOLS = [{
   name: 'send_email',
   description: `Send an email. Defaults to ${SENDER_EMAIL}; pass from to send as another allowed mailbox `
     + `(currently ${allowedSenders().join(' or ')}). Anything else is refused. `
-    + `Payroll notices go from payroll@thecachegroup.com.au — contractors know that address. `
-    + `Shows a preview unless confirm is true. Appends the matching TCG signature automatically — `
-    + `the payroll signature carries no personal name, title or mobile. `
+    + (ENABLE_PAYROLL
+        ? `Payroll notices go from payroll@thecachegroup.com.au — contractors know that address. `
+        : '')
+    + `Shows a preview unless confirm is true. Appends the matching TCG signature automatically. `
+    + (SHARED_SIG_NOTE ? SHARED_SIG_NOTE + ' ' : '')
     + `To attach a file, prefer attach_from_onedrive — pass the file's path relative to the OneDrive root `
     + `(e.g. "CONTRACTOR AGREEMENTS/Devinia Liddelow/Consultancy Brief Devinia Liddelow 19022027.docx") and the server `
     + `fetches it from OneDrive itself. Use the attachments parameter only for files that do not exist in OneDrive, `
@@ -768,6 +847,17 @@ async function callSendEmail(args) {
     const profileId = profile.identity || String(profile.address || '').toLowerCase();
     if (otherId === profileId) continue;
 
+    // The NAME check gets its own identity, falling back to the main one.
+    // careers@ has its own `identity` so nobody's MOBILE rides out on a
+    // candidate email, but shares `nameIdentity` with the deployment owner so
+    // that "Your interviewer will be: / Andrew Hurnard" — an introduction, and
+    // the commonest careers@ email there is — is not refused as impersonation.
+    // A TRAILING name is still removed by the sign-off stripper above, so the
+    // signature case stays covered.
+    const otherNameId   = other.nameIdentity   || otherId;
+    const profileNameId = profile.nameIdentity || profileId;
+    const skipNameCheck = otherNameId === profileNameId;
+
     // Last nine digits: survives +61 vs 0, spaces, hyphens and run-together.
     if (other.phone) {
       const tail9 = digitsOf(other.phone).slice(-9);
@@ -785,8 +875,15 @@ async function callSendEmail(args) {
     for (const [i, field] of [other.name, other.address].entries()) {
       if (!field) continue;
       // Index 0 is the name. A single-word name is ordinary English and is
-      // never checked; the address at index 1 is never exempt.
+      // never checked.
       if (i === 0 && !/\s/.test(field)) continue;
+      if (i === 0 && skipNameCheck) continue;
+      // Index 1 is the address. A SHARED INBOX address on a line of its own is
+      // an instruction — "Send your CV to: / careers@…", "timesheets to: /
+      // payroll@…" — not a pasted signature. The note above already calls that
+      // ordinary content; it just did not act on it. A PERSONAL address is
+      // still never exempt.
+      if (i === 1 && other.sharedInbox) continue;
       if (standaloneLines.includes(normWs(field))) {
         throw new Error(
           `Body contains "${field}" on a line of its own, which reads as a `
@@ -842,7 +939,11 @@ async function callSendEmail(args) {
     .filter(v => v && String(v).trim())
     .join('\n');
 
-  const preview = `FROM: ${profile.address}\n`
+  // Display name included. It is what lands in the recipient's inbox — and it
+  // is the change a careers@ send is actually making, from a person's name to
+  // "The Recruitment Team" — but the preview showed only the address, so
+  // whoever approved a preview could not see it.
+  const preview = `FROM: ${profile.name} <${profile.address}>\n`
     + (profile.mailbox.toLowerCase() !== profile.address.toLowerCase()
         ? `VIA MAILBOX: ${profile.mailbox}\n` : '')
     + `TO: ${to}\n`
