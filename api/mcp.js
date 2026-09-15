@@ -293,14 +293,32 @@ function isSignOffLine(line) {
 // set, and because the trim loop breaks on the first line it does not
 // recognise, an unmatched name also shields the "Regards" above it. The result
 // is a payslip from payroll@ signed by Andrew, with a doubled sign-off.
+// Returns {value, wholeOnly}. A real NAME may be matched on its first word —
+// "Andrew" alone at the foot of a body is a signature. An ALT NAME may not.
+//
+// altNames are descriptive words, not names: 'Recruitment Team' first-worded
+// to 'recruitment', which taught the stripper that a trailing line reading
+// "Recruitment" is a signature. A body ending "...functions: / Finance /
+// Operations / Recruitment" then lost its last line, SILENTLY, on EVERY sender
+// and EVERY deployment — the stripper is global, not per-profile. Worse, the
+// loop removes up to two lines, so a newly-recognised word unlocks whatever
+// sits beneath it: "WHS / Payroll / Recruitment" lost two.
+//
+// Whole-match only for altNames. 'Payroll' carried the same latent bug and is
+// fixed by the same change.
 function knownSenderNames() {
-  const names = [SENDER_NAME];
+  const out = [];
+  const seen = new Set();
+  const add = (value, wholeOnly) => {
+    if (!value || seen.has(value)) return;
+    seen.add(value); out.push({ value, wholeOnly });
+  };
+  add(SENDER_NAME, false);
   for (const p of Object.values(SENDERS)) {
-    for (const n of [p.name, ...(Array.isArray(p.altNames) ? p.altNames : [])]) {
-      if (n && !names.includes(n)) names.push(n);
-    }
+    add(p.name, false);
+    for (const n of (Array.isArray(p.altNames) ? p.altNames : [])) add(n, true);
   }
-  return names.filter(Boolean);
+  return out;
 }
 
 function isSenderNameLine(line, names) {
