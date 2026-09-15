@@ -199,7 +199,12 @@ if (ENABLE_PAYROLL) {
 // because that key does not exist until the line below has run.
 const BUILTIN_SENDER_KEYS = [
   'payroll@thecachegroup.com.au',
-  'payrollmb@thecachegroup.com.au'
+  'payrollmb@thecachegroup.com.au',
+  // careers@ too. Without it, SENDER_EMAIL=careers@ starts the server with the
+  // careers block skipped, so careers@ is the only allowed sender AND it signs
+  // with the owner's name, title and mobile — the exact thing the careers
+  // change exists to prevent — while tools/list asserts the opposite.
+  'careers@thecachegroup.com.au'
 ];
 if (BUILTIN_SENDER_KEYS.includes(SENDER_EMAIL.toLowerCase())) {
   throw new Error(
