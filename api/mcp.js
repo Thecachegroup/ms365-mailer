@@ -939,7 +939,11 @@ async function callSendEmail(args) {
     .filter(v => v && String(v).trim())
     .join('\n');
 
-  const preview = `FROM: ${profile.address}\n`
+  // Display name included. It is what lands in the recipient's inbox — and it
+  // is the change a careers@ send is actually making, from a person's name to
+  // "The Recruitment Team" — but the preview showed only the address, so
+  // whoever approved a preview could not see it.
+  const preview = `FROM: ${profile.name} <${profile.address}>\n`
     + (profile.mailbox.toLowerCase() !== profile.address.toLowerCase()
         ? `VIA MAILBOX: ${profile.mailbox}\n` : '')
     + `TO: ${to}\n`
