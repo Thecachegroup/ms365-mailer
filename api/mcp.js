@@ -684,6 +684,18 @@ async function fetchOneDriveAttachment(token, item) {
 
 // ── Tools ─────────────────────────────────────────────────────────────────────
 
+// One sentence naming only the shared-address signatures THIS deployment can
+// actually send under. Empty when it has neither. A static sentence advertised
+// a careers@ signature on a deployment with careers off and a payroll@ one on
+// Matt's, so the model read the description, tried it, and got a refusal.
+const SHARED_SIG_NOTE = (() => {
+  const parts = [];
+  if (SENDERS[CAREERS_EMAIL])   parts.push('careers@ signs as The Recruitment Team');
+  if (SENDERS[PAYROLL_ADDRESS]) parts.push('payroll@ signs as The Payroll Team');
+  if (!parts.length) return '';
+  return `Shared-address sends carry no personal name, title or mobile: ${parts.join(', ')}.`;
+})();
+
 const TOOLS = [{
   name: 'send_email',
   description: `Send an email. Defaults to ${SENDER_EMAIL}; pass from to send as another allowed mailbox `
