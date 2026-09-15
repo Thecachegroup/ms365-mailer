@@ -97,9 +97,31 @@ const SENDERS = {
 };
 
 // ── careers@ ─────────────────────────────────────────────────────────────────
-// The shared candidate inbox. Signed by whoever's deployment this is, so a
-// candidate can see who wrote to them while their reply still lands in the
-// shared inbox rather than one person's. Same identity as the owner above.
+// The shared candidate inbox. Signed as THE RECRUITMENT TEAM — no personal
+// name, no job title, no mobile. Changed 15/09/2026 on Andrew's instruction.
+//
+// It used to be signed with the deployment owner's own name, title and mobile.
+// That is wrong in two directions: it put a director's mobile number on bulk
+// candidate mail, and it made one shared inbox introduce itself as three
+// different people depending which deployment happened to send. careers@ is
+// the company talking, and a reply lands in the shared inbox either way.
+//
+// THREE IDENTITY KEYS, NOT ONE. They are separate because the three checks in
+// the impersonation guard want different answers here, and an earlier draft of
+// this change used one key for all three and broke two ordinary emails:
+//
+//   identity      — the PHONE check. Its own, so nobody's mobile can ride out
+//                   on a careers@ send. That is the point of the change.
+//   nameIdentity  — the NAME check. SHARED with the deployment owner, because
+//                   "Your interviewer will be: / Andrew Hurnard" is the single
+//                   most common shape of a careers@ email and is an
+//                   introduction, not a signature. A TRAILING name is still
+//                   removed by the sign-off stripper, so the signature case is
+//                   covered without refusing the introduction case.
+//   sharedInbox   — skips the ADDRESS check. "Send your CV to: / careers@…" on
+//                   a line of its own is an instruction, not a pasted
+//                   signature, and the guard's own note already calls that
+//                   ordinary content.
 //
 // The guard is not paranoia: a deployment whose SENDER_EMAIL is careers@ would
 // otherwise have its own profile silently overwritten by this one.
@@ -107,15 +129,20 @@ if (ENABLE_CAREERS && SENDER_EMAIL.toLowerCase() !== CAREERS_EMAIL) {
   SENDERS[CAREERS_EMAIL] = {
     mailbox: CAREERS_EMAIL,
     address: CAREERS_EMAIL,
-    name:    SENDER_NAME,
-    title:   SENDER_TITLE,
+    name:    'The Recruitment Team',
+    // Other forms of the same name a body might end with. Sign-off stripper
+    // only, and matched WHOLE — see knownSenderNames below for why.
+    altNames: ['Recruitment Team'],
+    title:   '',
     company: SENDER_COMPANY,
-    phone:   SENDER_PHONE,
+    phone:   '',
     signOff: SIGN_OFF,
     // Attachments come from the deployment owner's OneDrive, not the shared
     // mailbox — careers@ has no drive of its own.
     drive:   SENDER_EMAIL,
-    identity: SENDER_EMAIL.toLowerCase()
+    identity:     'shared:careers',
+    nameIdentity: 'owner:' + SENDER_EMAIL.toLowerCase(),
+    sharedInbox:  true
   };
 }
 
