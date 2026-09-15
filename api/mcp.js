@@ -92,7 +92,13 @@ const SENDERS = {
     // profile becomes the "other" of the other, and an ordinary email that
     // mentions the sender's own mobile is refused as impersonation of himself.
     // Profiles that put the same person in the signature share one identity.
-    identity: SENDER_EMAIL.toLowerCase()
+    // NAMESPACED, and with a DIFFERENT prefix from the shared mailboxes below.
+    // An un-prefixed literal identity ('careers', 'payroll') is collided with
+    // by setting SENDER_EMAIL to that bare word, which silently merges the two
+    // profiles and switches the guard off entirely. One shared prefix does not
+    // fix it — 'sender:careers' collides just as happily. The prefixes must
+    // differ, and a real address can never begin "shared:".
+    identity: 'owner:' + SENDER_EMAIL.toLowerCase()
   }
 };
 
