@@ -861,8 +861,15 @@ async function callSendEmail(args) {
     for (const [i, field] of [other.name, other.address].entries()) {
       if (!field) continue;
       // Index 0 is the name. A single-word name is ordinary English and is
-      // never checked; the address at index 1 is never exempt.
+      // never checked.
       if (i === 0 && !/\s/.test(field)) continue;
+      if (i === 0 && skipNameCheck) continue;
+      // Index 1 is the address. A SHARED INBOX address on a line of its own is
+      // an instruction — "Send your CV to: / careers@…", "timesheets to: /
+      // payroll@…" — not a pasted signature. The note above already calls that
+      // ordinary content; it just did not act on it. A PERSONAL address is
+      // still never exempt.
+      if (i === 1 && other.sharedInbox) continue;
       if (standaloneLines.includes(normWs(field))) {
         throw new Error(
           `Body contains "${field}" on a line of its own, which reads as a `
