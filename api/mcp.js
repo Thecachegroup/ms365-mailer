@@ -175,7 +175,10 @@ if (ENABLE_PAYROLL) {
     drive:   SENDER_EMAIL,
     // Its own identity: payroll@ carries no personal name or mobile, and a
     // body signed by a person is genuinely wrong on a payroll send.
-    identity: 'payroll'
+    identity: 'shared:payroll',
+    // payroll@ on its own line is "send your timesheets here", not a pasted
+    // signature. Same reasoning as careers@ above.
+    sharedInbox: true
   };
 
   // Same mailbox reachable by its other address, so a caller who says
