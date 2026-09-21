@@ -488,7 +488,7 @@ function httpsGetBuffer(url, headers, depth) {
     let u;
     try { u = new URL(url); } catch (e) { return reject(new Error(`Bad URL: ${url}`)); }
     const req = https.request(
-      { hostname: u.hostname, path: u.pathname + u.search, method: 'GET', headers },
+      { hostname: u.hostname, path: u.pathname + u.search, method: 'GET', headers, timeout: REQUEST_TIMEOUT_MS },
       (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           res.resume();
@@ -504,6 +504,7 @@ function httpsGetBuffer(url, headers, depth) {
         res.on('end', () => resolve(Buffer.concat(chunks)));
       }
     );
+    req.on('timeout', () => req.destroy(new Error(`Request to ${u.hostname} timed out after ${REQUEST_TIMEOUT_MS / 1000}s`)));
     req.on('error', reject);
     req.end();
   });
