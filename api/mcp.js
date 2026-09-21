@@ -17,6 +17,13 @@ const SENDER_PHONE  = process.env.SENDER_PHONE  || '0417 037 451';
 const SIGN_OFF      = process.env.SIGN_OFF      || 'Regards';
 const MCP_SECRET    = process.env.MCP_SHARED_SECRET || '';
 
+// Every outbound Graph/login call gets a hard ceiling. Before this, a slow or
+// hung socket had NO timeout at all — Node just waited, and the only thing
+// that ever stopped it was the platform killing the whole function, which
+// looks like nothing happening for 10-20 minutes and then silence. Now a
+// stuck call fails on its own, fast, with a real error message.
+const REQUEST_TIMEOUT_MS = 20000;
+
 // ── Where attachments are read from ──────────────────────────────────────────
 // Attachments used to come from whichever mailbox the deployment sends as:
 // every profile's `drive` resolved to SENDER_EMAIL, so Matt's deployment looked
