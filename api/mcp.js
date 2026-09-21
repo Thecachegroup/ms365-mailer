@@ -17,6 +17,16 @@ const SENDER_PHONE  = process.env.SENDER_PHONE  || '0417 037 451';
 const SIGN_OFF      = process.env.SIGN_OFF      || 'Regards';
 const MCP_SECRET    = process.env.MCP_SHARED_SECRET || '';
 
+// Every outbound Graph/login call gets a hard, total wall-clock deadline.
+// Before this, a slow or hung socket had NO timeout at all — Node just
+// waited, and the only thing that ever stopped it was the platform killing
+// the whole function, which looks like nothing happening for 10-20 minutes
+// and then silence. This is deliberately a real deadline (setTimeout), not
+// Node's built-in `timeout` option — that option only fires on a fully
+// SILENT socket, so a connection trickling even one byte occasionally would
+// never trip it and could still run long. A deadline fires regardless.
+const REQUEST_TIMEOUT_MS = 20000;
+
 // ── Where attachments are read from ──────────────────────────────────────────
 // Attachments used to come from whichever mailbox the deployment sends as:
 // every profile's `drive` resolved to SENDER_EMAIL, so Matt's deployment looked
@@ -462,9 +472,16 @@ function httpsPost(hostname, path, headers, body) {
     const buf = Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
     const req = https.request(
       { hostname, path, method: 'POST', headers: { ...headers, 'Content-Length': buf.length } },
-      (res) => { let d = ''; res.on('data', c => d += c); res.on('end', () => resolve({ status: res.statusCode, body: d })); }
+      (res) => {
+        let d = '';
+        res.on('data', c => d += c);
+        res.on('end', () => { clearTimeout(timer); resolve({ status: res.statusCode, body: d }); });
+      }
     );
-    req.on('error', reject);
+    const timer = setTimeout(() => {
+      req.destroy(new Error(`Request to ${hostname}${path} timed out after ${REQUEST_TIMEOUT_MS / 1000}s`));
+    }, REQUEST_TIMEOUT_MS);
+    req.on('error', (err) => { clearTimeout(timer); reject(err); });
     req.write(buf);
     req.end();
   });
@@ -473,30 +490,45 @@ function httpsPost(hostname, path, headers, body) {
 // GET returning raw bytes, following redirects.
 // Graph answers /content with a 302 to a pre-signed storage URL — the auth
 // header is deliberately dropped on the hop so credentials never leave Graph.
-function httpsGetBuffer(url, headers, depth) {
+// `deadline` is a single wall-clock cutoff (Date.now() + REQUEST_TIMEOUT_MS)
+// created once on the first call and threaded through every recursive
+// redirect hop. Without this, each hop got its own fresh 20s window, so a
+// worst-case redirect chain (Graph's /content endpoint 302s to a pre-signed
+// storage URL, so this normally runs once) could add up to several times the
+// intended ceiling instead of respecting it as a total.
+function httpsGetBuffer(url, headers, depth, deadline) {
   depth = depth || 0;
+  if (deadline == null) deadline = Date.now() + REQUEST_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
     if (depth > 5) return reject(new Error('Too many redirects fetching attachment'));
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      return reject(new Error(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`));
+    }
     let u;
     try { u = new URL(url); } catch (e) { return reject(new Error(`Bad URL: ${url}`)); }
     const req = https.request(
       { hostname: u.hostname, path: u.pathname + u.search, method: 'GET', headers },
       (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          clearTimeout(timer);
           res.resume();
-          return resolve(httpsGetBuffer(res.headers.location, {}, depth + 1));
+          return resolve(httpsGetBuffer(res.headers.location, {}, depth + 1, deadline));
         }
         if (res.statusCode !== 200) {
           let d = '';
           res.on('data', c => d += c);
-          return res.on('end', () => reject(new Error(`Graph GET ${res.statusCode}: ${String(d).slice(0, 300)}`)));
+          return res.on('end', () => { clearTimeout(timer); reject(new Error(`Graph GET ${res.statusCode}: ${String(d).slice(0, 300)}`)); });
         }
         const chunks = [];
         res.on('data', c => chunks.push(c));
-        res.on('end', () => resolve(Buffer.concat(chunks)));
+        res.on('end', () => { clearTimeout(timer); resolve(Buffer.concat(chunks)); });
       }
     );
-    req.on('error', reject);
+    const timer = setTimeout(() => {
+      req.destroy(new Error(`Request to ${u.hostname} timed out after ${REQUEST_TIMEOUT_MS / 1000}s`));
+    }, remaining);
+    req.on('error', (err) => { clearTimeout(timer); reject(err); });
     req.end();
   });
 }
