@@ -471,11 +471,17 @@ function httpsPost(hostname, path, headers, body) {
   return new Promise((resolve, reject) => {
     const buf = Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
     const req = https.request(
-      { hostname, path, method: 'POST', headers: { ...headers, 'Content-Length': buf.length }, timeout: REQUEST_TIMEOUT_MS },
-      (res) => { let d = ''; res.on('data', c => d += c); res.on('end', () => resolve({ status: res.statusCode, body: d })); }
+      { hostname, path, method: 'POST', headers: { ...headers, 'Content-Length': buf.length } },
+      (res) => {
+        let d = '';
+        res.on('data', c => d += c);
+        res.on('end', () => { clearTimeout(timer); resolve({ status: res.statusCode, body: d }); });
+      }
     );
-    req.on('timeout', () => req.destroy(new Error(`Request to ${hostname}${path} timed out after ${REQUEST_TIMEOUT_MS / 1000}s`)));
-    req.on('error', reject);
+    const timer = setTimeout(() => {
+      req.destroy(new Error(`Request to ${hostname}${path} timed out after ${REQUEST_TIMEOUT_MS / 1000}s`));
+    }, REQUEST_TIMEOUT_MS);
+    req.on('error', (err) => { clearTimeout(timer); reject(err); });
     req.write(buf);
     req.end();
   });
