@@ -3,5 +3,8 @@
     { "source": "/", "destination": "/api/mcp" },
     { "source": "/mcp/:secret", "destination": "/api/mcp" },
     { "source": "/mcp", "destination": "/api/mcp" }
+  ],
+  "crons": [
+    { "path": "/", "schedule": "*/5 19-23,0-9 * * *" }
   ]
 }
