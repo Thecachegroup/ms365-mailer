@@ -3,5 +3,14 @@
     { "source": "/", "destination": "/api/mcp" },
     { "source": "/mcp/:secret", "destination": "/api/mcp" },
     { "source": "/mcp", "destination": "/api/mcp" }
+  ],
+  "crons": [
+    { "path": "/", "schedule": "*/5 17-23,0-9 * * *" }
+  ],
+  "headers": [
+    {
+      "source": "/",
+      "headers": [{ "key": "Cache-Control", "value": "no-store" }]
+    }
   ]
 }
